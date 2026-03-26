@@ -1,0 +1,416 @@
+<!doctype html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>Zone Configuration - Indigo Auto Fan</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/main.css') }}">
+</head>
+<body>
+{% set page_title = "Zone Editor" %}
+{% include "header_common.html" %}
+<script>
+  window.README_SECTION_NAME = "Zones";
+</script>
+<div id="container">
+    <div id="content">
+        {% from "_form_macros.html" import render_field, save_overlay %}
+        <form method="POST" id="zone-config-form" class="edit-form">
+            {% for field in zone_form if field.name not in ['submit', 'csrf_token', 'speed_curves', 'modifiers', 'global_behavior_variables_map'] %}
+            {{ render_field(field) }}
+            {% endfor %}
+
+            {# Speed Curves Section #}
+            {% if zone_form.speed_curves is defined %}
+            <fieldset class="group-box">
+                <legend>Speed Curves</legend>
+
+                {# Cooling Curve Breakpoints #}
+                {% if zone_form.speed_curves.form.cooling_curve is defined %}
+                <fieldset class="group-box">
+                    <legend>Cooling Curve</legend>
+                    <p style="font-style:italic; margin-bottom:10px;">
+                        Define temperature delta vs fan speed breakpoints. Speed is linearly interpolated between breakpoints.
+                        Delta = current temp - ideal temp (positive means warmer than desired).
+                    </p>
+                    <table id="cooling-breakpoints-table" class="zones-table" style="width:auto;">
+                        <thead>
+                            <tr>
+                                <th style="padding:4px 8px;">Temp Delta (&deg;F)</th>
+                                <th style="padding:4px 8px;">Fan Speed (%)</th>
+                                <th style="padding:4px 8px;">Action</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% set cooling_bp = zone.get('speed_curves', {}).get('cooling_curve', {}).get('breakpoints', [{"delta": 0, "speed_pct": 0}, {"delta": 3, "speed_pct": 50}, {"delta": 6, "speed_pct": 85}, {"delta": 8, "speed_pct": 100}]) %}
+                            {% for bp in cooling_bp %}
+                            <tr>
+                                <td style="padding:4px 8px;"><input type="number" step="0.5" name="cooling_breakpoint_delta_{{ loop.index0 }}" value="{{ bp.delta }}" style="width:80px;"></td>
+                                <td style="padding:4px 8px;"><input type="number" step="1" min="0" max="100" name="cooling_breakpoint_speed_{{ loop.index0 }}" value="{{ bp.speed_pct }}" style="width:80px;"></td>
+                                <td style="padding:4px 8px;"><button type="button" class="btn remove-cooling-bp">Remove</button></td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                    <button type="button" class="btn" id="add-cooling-bp">Add Breakpoint</button>
+                </fieldset>
+                {% endif %}
+
+                {# Warming Curve Breakpoints #}
+                {% if zone_form.speed_curves.form.warming_curve is defined %}
+                <fieldset class="group-box">
+                    <legend>Warming Curve</legend>
+                    <p style="font-style:italic; margin-bottom:10px;">
+                        Define breakpoints for when the room is cooler than desired (negative delta).
+                        Useful for circulating warm air during heating.
+                    </p>
+                    <table id="warming-breakpoints-table" class="zones-table" style="width:auto;">
+                        <thead>
+                            <tr>
+                                <th style="padding:4px 8px;">Temp Delta (&deg;F)</th>
+                                <th style="padding:4px 8px;">Fan Speed (%)</th>
+                                <th style="padding:4px 8px;">Action</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% set warming_bp = zone.get('speed_curves', {}).get('warming_curve', {}).get('breakpoints', [{"delta": 0, "speed_pct": 0}, {"delta": -2, "speed_pct": 10}]) %}
+                            {% for bp in warming_bp %}
+                            <tr>
+                                <td style="padding:4px 8px;"><input type="number" step="0.5" name="warming_breakpoint_delta_{{ loop.index0 }}" value="{{ bp.delta }}" style="width:80px;"></td>
+                                <td style="padding:4px 8px;"><input type="number" step="1" min="0" max="100" name="warming_breakpoint_speed_{{ loop.index0 }}" value="{{ bp.speed_pct }}" style="width:80px;"></td>
+                                <td style="padding:4px 8px;"><button type="button" class="btn remove-warming-bp">Remove</button></td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                    <button type="button" class="btn" id="add-warming-bp">Add Breakpoint</button>
+                </fieldset>
+                {% endif %}
+            </fieldset>
+            {% endif %}
+
+            {# Modifiers Section #}
+            {% if zone_form.modifiers is defined %}
+            <fieldset class="group-box">
+                <legend>Speed Modifiers</legend>
+
+                {% if zone_form.modifiers.form.hvac_cooling_active is defined %}
+                <fieldset class="group-box">
+                    <legend>HVAC Cooling Modifier</legend>
+                    {% for subfield in zone_form.modifiers.form.hvac_cooling_active.form if subfield.name not in ['csrf_token', 'submit'] %}
+                        {{ render_field(subfield) }}
+                    {% endfor %}
+                </fieldset>
+                {% endif %}
+
+                {% if zone_form.modifiers.form.hvac_heating_active is defined %}
+                <fieldset class="group-box">
+                    <legend>HVAC Heating Modifier</legend>
+                    {% for subfield in zone_form.modifiers.form.hvac_heating_active.form if subfield.name not in ['csrf_token', 'submit'] %}
+                        {{ render_field(subfield) }}
+                    {% endfor %}
+                </fieldset>
+                {% endif %}
+
+                {% if zone_form.modifiers.form.nighttime is defined %}
+                <fieldset class="group-box">
+                    <legend>Nighttime Modifier</legend>
+                    {% for subfield in zone_form.modifiers.form.nighttime.form if subfield.name not in ['csrf_token', 'submit'] %}
+                        {{ render_field(subfield) }}
+                    {% endfor %}
+                </fieldset>
+                {% endif %}
+
+                {% if zone_form.modifiers.form.humidity is defined %}
+                <fieldset class="group-box">
+                    <legend>Humidity Modifier</legend>
+                    {% for subfield in zone_form.modifiers.form.humidity.form if subfield.name not in ['csrf_token', 'submit'] %}
+                        {{ render_field(subfield) }}
+                    {% endfor %}
+                </fieldset>
+                {% endif %}
+
+                {% if zone_form.modifiers.form.no_presence is defined %}
+                <fieldset class="group-box">
+                    <legend>No Presence Modifier</legend>
+                    {% for subfield in zone_form.modifiers.form.no_presence.form if subfield.name not in ['csrf_token', 'submit'] %}
+                        {{ render_field(subfield) }}
+                    {% endfor %}
+                </fieldset>
+                {% endif %}
+            </fieldset>
+            {% endif %}
+
+            {# Global Behavior Variables Map #}
+            {% if zone_form.global_behavior_variables_map is defined %}
+                {{ render_field(zone_form.global_behavior_variables_map) }}
+            {% endif %}
+
+            <div>
+                <input type="submit" value="Save" class="btn">
+                <button type="button" class="btn" onclick="window.location.href='{{ url_for('zones') }}'">Cancel</button>
+            </div>
+        </form>
+        {{ save_overlay() }}
+
+        <script>
+        // Ensure all options in the selected list are included when the form is submitted
+        document.addEventListener('DOMContentLoaded', function() {
+          var zoneForm = document.getElementById('zone-config-form');
+          if (zoneForm) {
+            zoneForm.addEventListener('submit', function() {
+              // Select all options in all multiple select boxes
+              document.querySelectorAll('select[multiple]').forEach(function(select) {
+                if (select.id.endsWith('_selected')) {
+                  for (var i = 0; i < select.options.length; i++) {
+                    select.options[i].selected = true;
+                  }
+                }
+              });
+
+              // Collect breakpoint data into hidden fields before submission
+              collectBreakpoints('cooling');
+              collectBreakpoints('warming');
+            });
+          }
+        });
+
+        function collectBreakpoints(curveType) {
+            var table = document.getElementById(curveType + '-breakpoints-table');
+            if (!table) return;
+
+            var rows = table.querySelectorAll('tbody tr');
+            var breakpoints = [];
+
+            rows.forEach(function(row) {
+                var deltaInput = row.querySelector('input[name^="' + curveType + '_breakpoint_delta_"]');
+                var speedInput = row.querySelector('input[name^="' + curveType + '_breakpoint_speed_"]');
+                if (deltaInput && speedInput) {
+                    breakpoints.push({
+                        delta: parseFloat(deltaInput.value) || 0,
+                        speed_pct: parseFloat(speedInput.value) || 0
+                    });
+                }
+            });
+
+            // Store as hidden JSON field
+            var existingHidden = document.querySelector('input[name="' + curveType + '_breakpoints_json"]');
+            if (existingHidden) {
+                existingHidden.value = JSON.stringify(breakpoints);
+            } else {
+                var hidden = document.createElement('input');
+                hidden.type = 'hidden';
+                hidden.name = curveType + '_breakpoints_json';
+                hidden.value = JSON.stringify(breakpoints);
+                document.getElementById('zone-config-form').appendChild(hidden);
+            }
+        }
+        </script>
+
+        <script>
+        // Add/Remove breakpoint rows for cooling curve
+        document.addEventListener('DOMContentLoaded', function() {
+            var coolingTable = document.getElementById('cooling-breakpoints-table');
+            if (coolingTable) {
+                document.getElementById('add-cooling-bp').addEventListener('click', function() {
+                    var tbody = coolingTable.querySelector('tbody');
+                    var rowCount = tbody.rows.length;
+                    var row = document.createElement('tr');
+                    row.innerHTML =
+                        '<td style="padding:4px 8px;"><input type="number" step="0.5" name="cooling_breakpoint_delta_' + rowCount + '" value="0" style="width:80px;"></td>' +
+                        '<td style="padding:4px 8px;"><input type="number" step="1" min="0" max="100" name="cooling_breakpoint_speed_' + rowCount + '" value="0" style="width:80px;"></td>' +
+                        '<td style="padding:4px 8px;"><button type="button" class="btn remove-cooling-bp">Remove</button></td>';
+                    tbody.appendChild(row);
+                    attachRemoveHandler(row.querySelector('.remove-cooling-bp'));
+                });
+
+                coolingTable.querySelectorAll('.remove-cooling-bp').forEach(function(btn) {
+                    attachRemoveHandler(btn);
+                });
+            }
+
+            var warmingTable = document.getElementById('warming-breakpoints-table');
+            if (warmingTable) {
+                document.getElementById('add-warming-bp').addEventListener('click', function() {
+                    var tbody = warmingTable.querySelector('tbody');
+                    var rowCount = tbody.rows.length;
+                    var row = document.createElement('tr');
+                    row.innerHTML =
+                        '<td style="padding:4px 8px;"><input type="number" step="0.5" name="warming_breakpoint_delta_' + rowCount + '" value="0" style="width:80px;"></td>' +
+                        '<td style="padding:4px 8px;"><input type="number" step="1" min="0" max="100" name="warming_breakpoint_speed_' + rowCount + '" value="0" style="width:80px;"></td>' +
+                        '<td style="padding:4px 8px;"><button type="button" class="btn remove-warming-bp">Remove</button></td>';
+                    tbody.appendChild(row);
+                    attachRemoveHandler(row.querySelector('.remove-warming-bp'));
+                });
+
+                warmingTable.querySelectorAll('.remove-warming-bp').forEach(function(btn) {
+                    attachRemoveHandler(btn);
+                });
+            }
+
+            function attachRemoveHandler(btn) {
+                btn.addEventListener('click', function() {
+                    this.closest('tr').remove();
+                });
+            }
+        });
+        </script>
+
+        <div id="create-var-overlay"
+             style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.5);">
+            <div style="background:#fff; padding:20px; margin:100px auto; width:300px; border-radius:8px; position:relative;">
+                <h3>Create New Variable</h3>
+                <input type="text" id="new-var-name" style="width:300px;"/>
+                <div style="margin-top:10px;">
+                    <button type="button" id="create-var-submit" class="btn">Submit</button>
+                    <button type="button" id="create-var-cancel" class="btn">Cancel</button>
+                </div>
+            </div>
+        </div>
+    </div>
+    <script>
+        document.addEventListener('DOMContentLoaded', function () {
+            var currentFieldName = '';
+            document.querySelectorAll('.create-new-var-btn').forEach(function (btn) {
+                btn.addEventListener('click', function () {
+                    currentFieldName = btn.getAttribute('data-field-name');
+                    var contextType = "zone";
+                    var formField = btn.closest('.form-field');
+                    var label = formField.querySelector('label');
+                    var nameField = document.querySelector('input[name="name"]');
+                    var contextName = nameField ? nameField.value.trim().toLowerCase().replace(/\s+/g, '_') : "default";
+                    var fieldNameWithoutSuffix = currentFieldName.replace(/_var_id$/, '');
+                    var defaultName = "auto_fan_" + contextType + "_" + contextName + "_" + fieldNameWithoutSuffix;
+                    document.getElementById('new-var-name').value = defaultName;
+                    document.getElementById('create-var-overlay').style.display = 'block';
+                });
+            });
+            document.getElementById('create-var-cancel').addEventListener('click', function () {
+                document.getElementById('create-var-overlay').style.display = 'none';
+            });
+            document.getElementById('create-var-submit').addEventListener('click', function () {
+                var varName = document.getElementById('new-var-name').value;
+                fetch('{{ url_for('create_new_variable') }}', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({name: varName})
+                })
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data.var_id) {
+                            var fieldSelect = document.querySelector('select[name="' + currentFieldName + '"]');
+                            var option = document.createElement('option');
+                            option.value = data.var_id;
+                            option.text = data.var_name;
+                            option.selected = true;
+                            fieldSelect.appendChild(option);
+                        }
+                        document.getElementById('create-var-overlay').style.display = 'none';
+                    })
+                    .catch(err => {
+                        alert('Error creating variable');
+                    });
+            });
+        });
+    </script>
+    <script>
+        document.addEventListener('DOMContentLoaded', function () {
+            var triggers = document.querySelectorAll('.tooltip-label');
+            triggers.forEach(function (el) {
+                el.style.cursor = 'pointer';
+                el.addEventListener('click', function (e) {
+                    var formField = this.closest('.form-field');
+                    var info = formField.querySelector('.tooltip-info');
+                    if (info) {
+                        var label = formField.querySelector('.tooltip-label');
+                        var tooltip = label ? label.getAttribute('data-tooltip') : '';
+                        if (info.style.display === 'none' || info.style.display === '') {
+                            info.textContent = tooltip;
+                            info.style.display = 'block';
+                        } else {
+                            info.style.display = 'none';
+                        }
+                    }
+                });
+            });
+        });
+    </script>
+    <script>
+        function moveRight(fieldName) {
+            var available = document.getElementById(fieldName.replace('.', '-') + "_available");
+            var selected = document.getElementById(fieldName.replace('.', '-') + "_selected");
+            for (var i = available.options.length - 1; i >= 0; i--) {
+                var option = available.options[i];
+                if (option.selected) {
+                    selected.appendChild(option);
+                    option.selected = true;
+                }
+            }
+        }
+
+        function moveLeft(fieldName) {
+            var available = document.getElementById(fieldName.replace('.', '-') + "_available");
+            var selected = document.getElementById(fieldName.replace('.', '-') + "_selected");
+            for (var i = selected.options.length - 1; i >= 0; i--) {
+                var option = selected.options[i];
+                if (option.selected) {
+                    available.appendChild(option);
+                    option.selected = false;
+                }
+            }
+        }
+    </script>
+    <script>
+        document.addEventListener('DOMContentLoaded', function () {
+            // Toggle ideal temp variable vs static value
+            var useVarCheckbox = document.querySelector('input[name="ideal_temp_use_variable"]');
+            var idealTempInput = document.querySelector('input[name="ideal_temp_value"]');
+            var idealTempVarSelect = document.querySelector('select[name="ideal_temp_var_id"]');
+
+            function updateIdealTempFields() {
+                if (!useVarCheckbox) return;
+                if (useVarCheckbox.checked) {
+                    if (idealTempInput) idealTempInput.disabled = true;
+                    if (idealTempVarSelect) idealTempVarSelect.disabled = false;
+                } else {
+                    if (idealTempInput) idealTempInput.disabled = false;
+                    if (idealTempVarSelect) idealTempVarSelect.disabled = true;
+                }
+            }
+
+            if (useVarCheckbox) {
+                useVarCheckbox.addEventListener('change', updateIdealTempFields);
+                updateIdealTempFields();
+            }
+        });
+    </script>
+</div>
+<hr>
+<div id="documentation-snippet"></div>
+<script>
+(async function() {
+  let md = await fetch("{{ url_for('static', filename='Documentation.MD') }}").then(r => r.text());
+
+  function extractSection(text, heading) {
+    const lines = text.split("\n");
+    let out = [], inSection = false, depth = 0;
+
+    for (let l of lines) {
+      const m = l.match(/^(#+)\s+(.*)$/);
+      if (m) {
+        const d = m[1].length, title = m[2].trim();
+        if (!inSection && title === heading) { inSection = true; depth = d; out.push(l); continue; }
+        if (inSection && d <= depth) break;
+      }
+      if (inSection) out.push(l);
+    }
+    return out.join("\n");
+  }
+
+  const snippetMd = extractSection(md, window.README_SECTION_NAME || "");
+  if (snippetMd) {
+    document.getElementById("documentation-snippet").innerHTML = marked.parse(snippetMd);
+  }
+})();
+</script>
+</body>
+</html>

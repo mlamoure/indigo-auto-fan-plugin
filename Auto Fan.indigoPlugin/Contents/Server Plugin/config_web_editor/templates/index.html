@@ -1,0 +1,31 @@
+<!doctype html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>Indigo Auto Fan - Landing Page</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/main.css') }}">
+</head>
+<body>
+{% set page_title = "Documentation" %}
+{% include "header_common.html" %}
+<div id="container">
+    <div id="content">
+        <div class="instructions-container">
+    <h2>Instructions</h2>
+    <div id="instructions-content">Loading instructions...</div>
+        </div>
+    </div>
+</div>
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+<script>
+    fetch("{{ url_for('static', filename='Documentation.MD') }}")
+        .then(response => response.text())
+        .then(text => {
+            document.getElementById('instructions-content').innerHTML = marked.parse(text);
+        })
+        .catch(error => {
+            document.getElementById('instructions-content').innerHTML = 'Failed to load instructions.';
+        });
+</script>
+</body>
+</html>

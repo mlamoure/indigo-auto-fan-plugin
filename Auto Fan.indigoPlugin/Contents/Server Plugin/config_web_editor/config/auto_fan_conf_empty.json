@@ -1,0 +1,10 @@
+{
+  "plugin_config": {
+    "enabled": true,
+    "default_lock_duration": 60,
+    "default_lock_extension_duration": 30,
+    "global_behavior_variables": [],
+    "weather_dev_id": null
+  },
+  "zones": []
+}

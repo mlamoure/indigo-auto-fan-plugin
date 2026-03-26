@@ -1,0 +1,10 @@
+<?xml version="1.0"?>
+<Devices>
+    <Device type="relay" id="auto_fan_zone">
+        <Name>Auto Fan Zone</Name>
+        <!-- States populated dynamically via getDeviceStateList -->
+    </Device>
+    <Device type="relay" id="auto_fan_config">
+        <Name>Auto Fan Global Config</Name>
+    </Device>
+</Devices>

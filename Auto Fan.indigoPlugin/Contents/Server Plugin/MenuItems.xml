@@ -1,0 +1,11 @@
+<?xml version="1.0"?>
+<MenuItems>
+    <MenuItem id="open_web_config">
+        <Name>Open Web Configuration</Name>
+        <URL>/message/com.vtmikel.autofan/web_ui/</URL>
+    </MenuItem>
+    <MenuItem id="print_locks">
+        <Name>Print all locked zones</Name>
+        <CallbackMethod>print_locked_zones</CallbackMethod>
+    </MenuItem>
+</MenuItems>

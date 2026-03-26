@@ -1,0 +1,8 @@
+# Core dependencies for IWS mode
+WTForms~=3.2.1          # Form generation and validation
+Jinja2~=3.1.6           # Template rendering
+Werkzeug~=3.1.5         # MultiDict for WTForms
+MarkupSafe~=3.0.3       # Jinja2 dependency
+python-dotenv~=1.2.1    # Environment configuration
+pytest~=8.4.2           # Testing
+PyYAML~=6.0.3           # Test config loading

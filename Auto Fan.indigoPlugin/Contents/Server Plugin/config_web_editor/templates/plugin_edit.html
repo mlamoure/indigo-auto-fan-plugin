@@ -1,0 +1,158 @@
+<!doctype html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>Auto Fan Configuration - Indigo Auto Fan</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/main.css') }}">
+</head>
+<body>
+{% set page_title = "Auto Fan Configuration" %}
+{% include "header_common.html" %}
+<script>
+  window.README_SECTION_NAME = "Auto Fan Configuration";
+</script>
+<div id="container">
+    <div id="content">
+        {% from "_form_macros.html" import render_field %}
+        <form method="POST" id="plugin-config-form" class="edit-form">
+            {% for field in plugin_form if field.name not in ['submit', 'csrf_token'] %}
+            {{ render_field(field) }}
+            {% endfor %}
+            <div>
+                <input type="submit" value="Save" class="btn">
+                <button type="button" class="btn" onclick="window.location.href='{{ url_for('index') }}'">Cancel</button>
+            </div>
+        </form>
+        <div id="create-var-overlay"
+             style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.5);">
+            <div style="background:#fff; padding:20px; margin:100px auto; width:300px; border-radius:8px; position:relative;">
+                <h3>Create New Variable</h3>
+                <input type="text" id="new-var-name" style="width:300px;"/>
+                <div style="margin-top:10px;">
+                    <button type="button" id="create-var-submit" class="btn">Submit</button>
+                    <button type="button" id="create-var-cancel" class="btn">Cancel</button>
+                </div>
+            </div>
+        </div>
+    </div>
+    <script>
+        document.addEventListener('DOMContentLoaded', function () {
+            var currentFieldName = '';
+            document.querySelectorAll('.create-new-var-btn').forEach(function (btn) {
+                btn.addEventListener('click', function () {
+                    currentFieldName = btn.getAttribute('data-field-name');
+                    var contextType = "auto";
+                    var formField = btn.closest('.form-field');
+                    var label = formField.querySelector('label');
+                    var nameField = document.querySelector('input[name="name"]');
+                    var contextName = nameField ? nameField.value.trim().toLowerCase().replace(/\s+/g, '_') : "default";
+                    var fieldNameWithoutSuffix = currentFieldName.replace(/_var_id$/, '');
+                    var defaultName = "auto_fan_" + contextType + "_" + contextName + "_" + fieldNameWithoutSuffix;
+                    document.getElementById('new-var-name').value = defaultName;
+                    document.getElementById('create-var-overlay').style.display = 'block';
+                });
+            });
+            document.getElementById('create-var-cancel').addEventListener('click', function () {
+                document.getElementById('create-var-overlay').style.display = 'none';
+            });
+            document.getElementById('create-var-submit').addEventListener('click', function () {
+                var varName = document.getElementById('new-var-name').value;
+                fetch('{{ url_for('create_new_variable') }}', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({name: varName})
+                })
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data.var_id) {
+                            var fieldSelect = document.querySelector('select[name="' + currentFieldName + '"]');
+                            var option = document.createElement('option');
+                            option.value = data.var_id;
+                            option.text = data.var_name;
+                            option.selected = true;
+                            fieldSelect.appendChild(option);
+                        }
+                        document.getElementById('create-var-overlay').style.display = 'none';
+                    })
+                    .catch(err => {
+                        alert('Error creating variable');
+                    });
+            });
+
+            document.querySelectorAll('.refresh-var-list-btn').forEach(function (btn) {
+                btn.addEventListener('click', function () {
+                    var fieldName = btn.getAttribute('data-field-name');
+                    fetch('{{ url_for('refresh_variables') }}')
+                        .then(response => response.json())
+                        .then(data => {
+                            var fieldSelect = document.querySelector('select[name="' + fieldName + '"]');
+                            if (fieldSelect) {
+                                fieldSelect.options.length = 0;
+                                data.variables.forEach(function (variable) {
+                                    var option = document.createElement('option');
+                                    option.value = variable.id;
+                                    option.text = variable.name;
+                                    fieldSelect.appendChild(option);
+                                });
+                            }
+                        })
+                        .catch(err => {
+                            alert('Error refreshing variable list');
+                        });
+                });
+            });
+        });
+    </script>
+    <script>
+        document.addEventListener('DOMContentLoaded', function () {
+            var triggers = document.querySelectorAll('.tooltip-label');
+            triggers.forEach(function (el) {
+                el.style.cursor = 'pointer';
+                el.addEventListener('click', function (e) {
+                    var formField = this.closest('.form-field');
+                    var info = formField.querySelector('.tooltip-info');
+                    if (info) {
+                        var label = formField.querySelector('.tooltip-label');
+                        var tooltip = label ? label.getAttribute('data-tooltip') : '';
+                        if (info.style.display === 'none' || info.style.display === '') {
+                            info.textContent = tooltip;
+                            info.style.display = 'block';
+                        } else {
+                            info.style.display = 'none';
+                        }
+                    }
+                });
+            });
+        });
+    </script>
+</div>
+<hr>
+<div id="documentation-snippet"></div>
+<script>
+(async function() {
+  let md = await fetch("{{ url_for('static', filename='Documentation.MD') }}").then(r => r.text());
+
+  function extractSection(text, heading) {
+    const lines = text.split("\n");
+    let out = [], inSection = false, depth = 0;
+
+    for (let l of lines) {
+      const m = l.match(/^(#+)\s+(.*)$/);
+      if (m) {
+        const d = m[1].length, title = m[2].trim();
+        if (!inSection && title === heading) { inSection = true; depth = d; out.push(l); continue; }
+        if (inSection && d <= depth) break;
+      }
+      if (inSection) out.push(l);
+    }
+    return out.join("\n");
+  }
+
+  const snippetMd = extractSection(md, window.README_SECTION_NAME || "");
+  if (snippetMd) {
+    document.getElementById("documentation-snippet").innerHTML = marked.parse(snippetMd);
+  }
+})();
+</script>
+</body>
+</html>

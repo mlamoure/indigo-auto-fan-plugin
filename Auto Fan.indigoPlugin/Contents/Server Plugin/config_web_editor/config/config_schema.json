@@ -1,0 +1,267 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Auto Fan Configuration Schema",
+  "type": "object",
+  "properties": {
+    "plugin_config": {
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "x-sync_to_indigo": true,
+          "title": "Plugin Enabled",
+          "default": true
+        },
+        "default_lock_duration": {
+          "type": "integer",
+          "x-sync_to_indigo": true,
+          "title": "Default Lock Duration (minutes)",
+          "tooltip": "Duration in minutes that a zone stays locked after a manual fan change.",
+          "default": 60
+        },
+        "default_lock_extension_duration": {
+          "type": "integer",
+          "x-sync_to_indigo": true,
+          "title": "Default Lock Extension Duration (minutes)",
+          "tooltip": "Duration in minutes to extend the lock when presence is detected.",
+          "default": 30
+        },
+        "global_behavior_variables": {
+          "type": "array",
+          "x-sync_to_indigo": true,
+          "title": "Global Behavior Variables",
+          "tooltip": "Variables that, when matched, turn all fans off globally (e.g., nobody home).",
+          "items": {
+            "type": "object",
+            "properties": {
+              "var_id": {"type": "integer", "title": "Variable ID"},
+              "comparison_type": {
+                "type": "string",
+                "enum": [
+                  "is TRUE (bool)",
+                  "is FALSE (bool)",
+                  "is equal to (str, lower())",
+                  "is not equal to (str, lower())"
+                ],
+                "title": "Comparison Type"
+              },
+              "var_value": {"type": "string", "title": "Variable Value"}
+            },
+            "required": ["var_id", "var_value"]
+          },
+          "default": []
+        },
+        "weather_dev_id": {
+          "type": "integer",
+          "x-sync_to_indigo": true,
+          "title": "Weather Device (Outdoor Temp)",
+          "tooltip": "Device providing outdoor temperature (feelslike, temp, or temperature state)."
+        },
+        "indigo_dev_id": {
+          "type": "integer",
+          "title": "Indigo Device ID"
+        }
+      }
+    },
+    "zones": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "x-sync_to_indigo": true,
+            "title": "Zone Name"
+          },
+          "enabled": {
+            "type": "boolean",
+            "x-sync_to_indigo": true,
+            "title": "Zone Enabled",
+            "default": true
+          },
+          "zone_index": {
+            "type": "integer",
+            "title": "Zone Index"
+          },
+          "indigo_dev_id": {
+            "type": "integer",
+            "title": "Indigo Device ID"
+          },
+          "fan_dev_id": {
+            "type": "integer",
+            "x-sync_to_indigo": true,
+            "title": "Fan Device"
+          },
+          "temp_sensor_dev_ids": {
+            "type": "array",
+            "x-sync_to_indigo": true,
+            "items": {"type": "integer"},
+            "title": "Temperature Sensor(s)",
+            "tooltip": "One or more temp sensors. If multiple, average is used.",
+            "default": []
+          },
+          "presence_dev_ids": {
+            "type": "array",
+            "x-sync_to_indigo": true,
+            "items": {"type": "integer"},
+            "title": "Presence Sensors",
+            "default": []
+          },
+          "thermostat_dev_id": {
+            "type": "integer",
+            "x-sync_to_indigo": true,
+            "title": "Thermostat"
+          },
+          "humidity_dev_id": {
+            "type": "integer",
+            "x-sync_to_indigo": true,
+            "title": "Humidity Sensor"
+          },
+          "weather_dev_id_override": {
+            "type": "integer",
+            "x-sync_to_indigo": true,
+            "title": "Weather Device Override",
+            "tooltip": "Override the global weather device for this zone."
+          },
+          "ideal_temp_value": {
+            "type": "number",
+            "x-sync_to_indigo": true,
+            "title": "Ideal Temperature",
+            "default": 72
+          },
+          "ideal_temp_use_variable": {
+            "type": "boolean",
+            "title": "Use Variable for Ideal Temp",
+            "default": false
+          },
+          "ideal_temp_var_id": {
+            "type": "integer",
+            "title": "Ideal Temperature Variable"
+          },
+          "speed_curves": {
+            "type": "object",
+            "title": "Speed Curves",
+            "properties": {
+              "cooling_curve": {
+                "type": "object",
+                "title": "Cooling Curve",
+                "properties": {
+                  "breakpoints": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "delta": {"type": "number", "title": "Temp Delta"},
+                        "speed_pct": {"type": "number", "minimum": 0, "maximum": 100, "title": "Fan Speed %"}
+                      },
+                      "required": ["delta", "speed_pct"]
+                    },
+                    "default": [
+                      {"delta": 0, "speed_pct": 0},
+                      {"delta": 3, "speed_pct": 50},
+                      {"delta": 6, "speed_pct": 85},
+                      {"delta": 8, "speed_pct": 100}
+                    ]
+                  }
+                }
+              },
+              "warming_curve": {
+                "type": "object",
+                "title": "Warming Curve",
+                "properties": {
+                  "breakpoints": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "delta": {"type": "number", "title": "Temp Delta"},
+                        "speed_pct": {"type": "number", "minimum": 0, "maximum": 100, "title": "Fan Speed %"}
+                      },
+                      "required": ["delta", "speed_pct"]
+                    },
+                    "default": [
+                      {"delta": 0, "speed_pct": 0},
+                      {"delta": -2, "speed_pct": 10}
+                    ]
+                  }
+                }
+              }
+            }
+          },
+          "modifiers": {
+            "type": "object",
+            "title": "Speed Modifiers",
+            "properties": {
+              "hvac_cooling_active": {
+                "type": "object",
+                "title": "HVAC Cooling Modifier",
+                "properties": {
+                  "enabled": {"type": "boolean", "default": true},
+                  "speed_adjust_pct": {"type": "number", "default": 15, "title": "Speed Boost When Cooling (%)"}
+                }
+              },
+              "hvac_heating_active": {
+                "type": "object",
+                "title": "HVAC Heating Modifier",
+                "properties": {
+                  "enabled": {"type": "boolean", "default": true},
+                  "speed_adjust_pct": {"type": "number", "default": -20, "title": "Speed Reduction When Heating (%)"},
+                  "clamp_min_pct": {"type": "number", "default": 0, "title": "Minimum Speed When Heating (%)"}
+                }
+              },
+              "nighttime": {
+                "type": "object",
+                "title": "Nighttime Modifier",
+                "properties": {
+                  "enabled": {"type": "boolean", "default": true},
+                  "clamp_min_pct": {"type": "number", "default": 0, "title": "Min Speed at Night (%)"},
+                  "clamp_max_pct": {"type": "number", "default": 50, "title": "Max Speed at Night (%)"},
+                  "night_start_hour": {"type": "integer", "default": 22, "minimum": 0, "maximum": 23, "title": "Night Start Hour"},
+                  "night_end_hour": {"type": "integer", "default": 8, "minimum": 0, "maximum": 23, "title": "Night End Hour"}
+                }
+              },
+              "humidity": {
+                "type": "object",
+                "title": "Humidity Modifier",
+                "properties": {
+                  "enabled": {"type": "boolean", "default": false},
+                  "threshold": {"type": "number", "default": 60, "title": "Humidity Threshold (%)"},
+                  "speed_adjust_per_unit_pct": {"type": "number", "default": 0.5, "title": "Speed Boost Per % Over Threshold"},
+                  "max_adjust_pct": {"type": "number", "default": 15, "title": "Max Humidity Boost (%)"}
+                }
+              },
+              "no_presence": {
+                "type": "object",
+                "title": "No Presence Modifier",
+                "properties": {
+                  "enabled": {"type": "boolean", "default": true},
+                  "clamp_max_pct": {"type": "number", "default": 0, "title": "Max Speed When No Presence (%)"}
+                }
+              }
+            }
+          },
+          "lock_duration": {
+            "type": "integer",
+            "x-sync_to_indigo": true,
+            "title": "Lock Duration (minutes)",
+            "tooltip": "Override default lock duration for this zone. -1 uses plugin default.",
+            "default": -1
+          },
+          "lock_extension_duration": {
+            "type": "integer",
+            "x-sync_to_indigo": true,
+            "title": "Lock Extension Duration (minutes)",
+            "default": -1
+          },
+          "global_behavior_variables_map": {
+            "type": "object",
+            "title": "Global Behavior Variables Map",
+            "default": {}
+          }
+        },
+        "required": ["name"]
+      }
+    }
+  },
+  "required": ["plugin_config", "zones"]
+}
