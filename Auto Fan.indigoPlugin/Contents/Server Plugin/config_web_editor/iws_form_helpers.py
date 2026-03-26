@@ -52,6 +52,11 @@ def create_field(field_name, field_schema):
             choices.insert(0, (-1, "None Selected"))
         f = SelectField(label=label_text, description=tooltip_text, choices=choices, coerce=int, validators=validators)
 
+    # Special handling for single device ID dropdown
+    elif field_name.endswith("_dev_id") and field_schema.get("x-drop-down"):
+        choices = [(-1, "None Selected")]
+        f = SelectField(label=label_text, description=tooltip_text, choices=choices, coerce=int, validators=validators)
+
     # Special handling for device ID multi-select
     elif field_name.endswith("_dev_ids") and field_schema.get("x-drop-down"):
         choices = []
