@@ -1,10 +1,9 @@
 import json
 from pathlib import Path
-from typing import List, Tuple
+from typing import List
 
 from .auto_fan_base import AutoFanBase
 from .fan_zone import FanZone
-from .speed_plan import SpeedPlan
 
 try:
     import indigo
@@ -38,13 +37,11 @@ class AutoFanConfig(AutoFanBase):
     def __init__(self, config: str) -> None:
         super().__init__()
         self.log_non_events = False
-        self._enabled = False
 
         # Global config
         self._indigo_dev_id = None
         self._default_lock_duration = 60
         self._default_lock_extension_duration = 30
-        self._global_behavior_variables = []
         self._weather_dev_id = None
 
         self._zones = []
@@ -78,6 +75,7 @@ class AutoFanConfig(AutoFanBase):
 
     @property
     def enabled(self) -> bool:
+        """Plugin is enabled/disabled via the global config Indigo device on/off state."""
         return bool(self.indigo_dev.onState)
 
     @enabled.setter
@@ -114,14 +112,6 @@ class AutoFanConfig(AutoFanBase):
     def weather_dev_id(self, value: int) -> None:
         self._weather_dev_id = value
 
-    @property
-    def global_behavior_variables(self) -> List[dict]:
-        return self._global_behavior_variables
-
-    @global_behavior_variables.setter
-    def global_behavior_variables(self, value: List[dict]) -> None:
-        self._global_behavior_variables = value
-
     def load_config(self) -> None:
         with open(self._config_file, "r", encoding="utf-8") as f:
             data = json.load(f)
@@ -131,10 +121,6 @@ class AutoFanConfig(AutoFanBase):
         self._debug_log("from_config_dict called")
 
         plugin_config = data.get("plugin_config", {})
-
-        # Defensive: ensure array fields are never None
-        if plugin_config.get("global_behavior_variables") is None:
-            plugin_config["global_behavior_variables"] = []
 
         for key, value in plugin_config.items():
             if hasattr(self, key):
@@ -165,52 +151,6 @@ class AutoFanConfig(AutoFanBase):
     @property
     def zones(self) -> List[FanZone]:
         return self._zones
-
-    def has_variable(self, var_id: int) -> bool:
-        """Check if variable is relevant to global config."""
-        for behavior in self.global_behavior_variables:
-            if behavior.get("var_id") == var_id:
-                return True
-        return False
-
-    def has_global_fan_off(self, zone: FanZone) -> SpeedPlan:
-        """
-        Check global behavior variables to determine if fans should be off.
-        Returns a SpeedPlan with any triggers contributing to global off.
-        """
-        plan_contribs: List[Tuple[str, str]] = []
-        for behavior in self._global_behavior_variables:
-            var_id = behavior.get("var_id")
-            # Skip globals disabled for this zone
-            if not zone.global_behavior_variables_map.get(str(var_id), True):
-                continue
-            var_value = behavior.get("var_value")
-            comp_type = behavior.get("comparison_type")
-            try:
-                current_value = indigo.variables[var_id].value
-                var_name = indigo.variables[var_id].name
-            except Exception:
-                continue
-            lc_current = str(current_value).lower()
-            lc_var_value = str(var_value).lower()
-            triggered = False
-            if comp_type == "is equal to (str, lower())" and lc_current == lc_var_value:
-                triggered = True
-            elif comp_type == "is not equal to (str, lower())" and lc_current != lc_var_value:
-                triggered = True
-            elif comp_type == "is TRUE (bool)" and lc_current in ["true", "1"]:
-                triggered = True
-            elif comp_type == "is FALSE (bool)" and lc_current in ["false", "0"]:
-                triggered = True
-            elif lc_current == lc_var_value:
-                triggered = True
-
-            if triggered:
-                plan_contribs.append(
-                    ("🌐", f"Global Variable '{var_name}' matched — fans off for zone")
-                )
-
-        return SpeedPlan(contributions=plan_contribs, target_speed_pct=0.0)
 
     @property
     def indigo_dev(self):

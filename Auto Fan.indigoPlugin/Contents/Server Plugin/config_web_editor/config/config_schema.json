@@ -6,12 +6,6 @@
     "plugin_config": {
       "type": "object",
       "properties": {
-        "enabled": {
-          "type": "boolean",
-          "x-sync_to_indigo": true,
-          "title": "Plugin Enabled",
-          "default": true
-        },
         "default_lock_duration": {
           "type": "integer",
           "x-sync_to_indigo": true,
@@ -26,40 +20,12 @@
           "tooltip": "Duration in minutes to extend the lock when presence is detected.",
           "default": 30
         },
-        "global_behavior_variables": {
-          "type": "array",
-          "x-sync_to_indigo": true,
-          "title": "Global Behavior Variables",
-          "tooltip": "Variables that, when matched, turn all fans off globally (e.g., nobody home).",
-          "items": {
-            "type": "object",
-            "properties": {
-              "var_id": {"type": "integer", "title": "Variable ID"},
-              "comparison_type": {
-                "type": "string",
-                "enum": [
-                  "is TRUE (bool)",
-                  "is FALSE (bool)",
-                  "is equal to (str, lower())",
-                  "is not equal to (str, lower())"
-                ],
-                "title": "Comparison Type"
-              },
-              "var_value": {"type": "string", "title": "Variable Value"}
-            },
-            "required": ["var_id", "var_value"]
-          },
-          "default": []
-        },
         "weather_dev_id": {
           "type": "integer",
           "x-sync_to_indigo": true,
+          "x-drop-down": true,
           "title": "Weather Device (Outdoor Temp)",
           "tooltip": "Device providing outdoor temperature (feelslike, temp, or temperature state)."
-        },
-        "indigo_dev_id": {
-          "type": "integer",
-          "title": "Indigo Device ID"
         }
       }
     },
@@ -252,11 +218,6 @@
             "x-sync_to_indigo": true,
             "title": "Lock Extension Duration (minutes)",
             "default": -1
-          },
-          "global_behavior_variables_map": {
-            "type": "object",
-            "title": "Global Behavior Variables Map",
-            "default": {}
           }
         },
         "required": ["name"]

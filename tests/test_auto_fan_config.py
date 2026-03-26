@@ -28,7 +28,7 @@ class TestAutoFanConfig:
                 "enabled": True,
                 "default_lock_duration": 60,
                 "default_lock_extension_duration": 30,
-                "global_behavior_variables": [],
+
             },
             "zones": [],
         })
@@ -42,7 +42,7 @@ class TestAutoFanConfig:
                 "enabled": True,
                 "default_lock_duration": 45,
                 "default_lock_extension_duration": 15,
-                "global_behavior_variables": [],
+
             },
             "zones": [
                 {
@@ -75,7 +75,7 @@ class TestAutoFanConfig:
                 "enabled": True,
                 "default_lock_duration": 60,
                 "default_lock_extension_duration": 30,
-                "global_behavior_variables": [],
+
             },
             "zones": [
                 {"name": "Zone A", "fan_dev_id": 100, "temp_sensor_dev_ids": [200], "presence_dev_ids": [300]},
@@ -88,23 +88,6 @@ class TestAutoFanConfig:
         assert config.zones[1].zone_index == 1
         assert config.zones[2].zone_index == 2
 
-    def test_has_variable_global(self, fake_indigo):
-        fake_indigo.variables[500] = fake_indigo.Variable(500, name="someone_home", value="true")
-
-        config = self._make_config({
-            "plugin_config": {
-                "enabled": True,
-                "default_lock_duration": 60,
-                "default_lock_extension_duration": 30,
-                "global_behavior_variables": [
-                    {"var_id": 500, "var_value": "true", "comparison_type": "is TRUE (bool)"}
-                ],
-            },
-            "zones": [],
-        })
-        assert config.has_variable(500) is True
-        assert config.has_variable(999) is False
-
     def test_default_speed_curves(self, fake_indigo):
         """Zones without explicit curves should use defaults."""
         config = self._make_config({
@@ -112,7 +95,7 @@ class TestAutoFanConfig:
                 "enabled": True,
                 "default_lock_duration": 60,
                 "default_lock_extension_duration": 30,
-                "global_behavior_variables": [],
+
             },
             "zones": [
                 {"name": "Default Zone", "fan_dev_id": 100, "temp_sensor_dev_ids": [200], "presence_dev_ids": [300]},
@@ -129,7 +112,7 @@ class TestAutoFanConfig:
                 "enabled": True,
                 "default_lock_duration": 60,
                 "default_lock_extension_duration": 30,
-                "global_behavior_variables": [],
+
                 "weather_dev_id": 999,
             },
             "zones": [],

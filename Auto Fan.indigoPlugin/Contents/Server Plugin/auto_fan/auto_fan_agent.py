@@ -149,20 +149,12 @@ class AutoFanAgent(AutoFanBase):
         """
         Process a variable change event.
 
-        If it's a global behavior variable, process all zones.
         If it's a zone-level variable (e.g., ideal temp), process that zone.
 
         Returns:
             List of zones that were processed.
         """
         processed = []
-
-        if self.config.has_variable(orig_var.id):
-            self.logger.debug(
-                f"Global config has variable {orig_var.id}; running process_all_zones"
-            )
-            self.process_all_zones()
-            return list(self.config.zones)
 
         for zone in self.config.zones:
             if zone.has_variable(orig_var.id):

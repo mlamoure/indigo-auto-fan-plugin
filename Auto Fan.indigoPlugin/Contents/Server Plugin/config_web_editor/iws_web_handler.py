@@ -544,11 +544,18 @@ class IWSWebHandler:
                 if field_name != "submit"
             }
 
-            # Ensure array fields are never None (prevents crashes on reload)
-            self._normalize_array_fields(plugin_config, ["global_behavior_variables"])
+            # Coerce integer fields
+            for int_field in ["default_lock_duration", "default_lock_extension_duration", "weather_dev_id"]:
+                val = plugin_config.get(int_field)
+                if val is not None and val != "" and val != "-1":
+                    try:
+                        plugin_config[int_field] = int(val)
+                    except (ValueError, TypeError):
+                        plugin_config[int_field] = None
+                elif val in ("", "-1"):
+                    plugin_config[int_field] = None
 
-            logger.debug(f"_post_plugin_config: Extracted plugin_config keys: {list(plugin_config.keys())}")
-            logger.debug(f"_post_plugin_config: plugin_config types: {[(k, type(v).__name__) for k, v in plugin_config.items()]}")
+            logger.debug(f"_post_plugin_config: Extracted plugin_config: {plugin_config}")
 
             config_data["plugin_config"] = plugin_config
             logger.debug("_post_plugin_config: Calling save_config")
@@ -829,15 +836,16 @@ class IWSWebHandler:
             PluginFormClass = generate_form_class_from_schema(plugin_schema)
             plugin_form = PluginFormClass(data=plugin_config)
 
-            # Update variable choices
+            # Update device dropdown for weather_dev_id
             try:
-                variables = self.config_editor.get_cached_indigo_variables()
-                var_choices = [(-1, "None Selected")] + [(v["id"], v["name"]) for v in variables]
-                for field_name, field in plugin_form._fields.items():
-                    if field_name.endswith("_var_id"):
-                        field.choices = var_choices
+                devices = self.config_editor.get_cached_indigo_devices()
+                device_choices = [(-1, "None Selected")] + [
+                    (d["id"], d.get("name", f"Device {d['id']}")) for d in devices
+                ]
+                if hasattr(plugin_form, 'weather_dev_id') and hasattr(plugin_form.weather_dev_id, 'choices'):
+                    plugin_form.weather_dev_id.choices = device_choices
             except Exception as e:
-                logger.warning(f"Could not update variable choices: {e}")
+                logger.warning(f"Could not update device choices: {e}")
 
             template = self.jinja_env.get_template('plugin_edit.html')
             html = template.render(plugin_form=plugin_form, flash=flash or {})

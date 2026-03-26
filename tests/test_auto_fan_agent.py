@@ -13,16 +13,8 @@ def _make_agent():
 
     conf = {
         "plugin_config": {
-            "enabled": True,
             "default_lock_duration": 60,
             "default_lock_extension_duration": 30,
-            "global_behavior_variables": [
-                {
-                    "var_id": 900,
-                    "comparison_type": "is TRUE (bool)",
-                    "var_value": "true",
-                }
-            ],
         },
         "zones": [
             {
@@ -201,20 +193,6 @@ class TestProcessDeviceChange:
 
 class TestProcessVariableChange:
     """Tests for process_variable_change method."""
-
-    def test_global_behavior_var_triggers_all_zones(self, fake_indigo):
-        """Change to a global behavior variable should trigger all zones."""
-        _setup_zone_devices(fake_indigo, temp_value=75.0)
-        _setup_zone_devices(fake_indigo, fan_id=101, temp_id=201,
-                           presence_id=301, temp_value=73.0)
-        agent = _make_agent()
-
-        orig_var = Variable(900, name="nobody_home", value="false")
-        new_var = Variable(900, name="nobody_home", value="true")
-        fake_indigo.variables[900] = new_var
-
-        processed = agent.process_variable_change(orig_var, new_var)
-        assert len(processed) == 2
 
     def test_zone_ideal_temp_var_triggers_that_zone_only(self, fake_indigo, speed_control_calls):
         """Change to a zone's ideal temp variable should only trigger that zone."""

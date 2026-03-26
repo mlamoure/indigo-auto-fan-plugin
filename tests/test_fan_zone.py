@@ -23,7 +23,7 @@ class TestFanZoneTemperature:
                 "enabled": True,
                 "default_lock_duration": 60,
                 "default_lock_extension_duration": 30,
-                "global_behavior_variables": [],
+
             },
             "zones": [
                 {

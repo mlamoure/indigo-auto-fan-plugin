@@ -71,9 +71,6 @@ class FanZone(AutoFanBase):
         self._indigo_dev_id: Optional[int] = None
         self._target_speed_pct: float = 0.0
 
-        # Global behavior overrides (per-zone)
-        self.global_behavior_variables_map: dict = {}
-
         # Runtime state definitions for Indigo device
         self.zone_indigo_device_runtime_states = [
             {"key": "current_temperature", "label": "Current Temperature", "type": "number",
@@ -122,7 +119,6 @@ class FanZone(AutoFanBase):
         self.lock_extension_duration = data.get("lock_extension_duration", -1)
         self.enabled = data.get("enabled", True)
         self._indigo_dev_id = data.get("indigo_dev_id")
-        self.global_behavior_variables_map = data.get("global_behavior_variables_map", {})
 
     # ---- Sensor Reading Methods ----
 
@@ -299,19 +295,6 @@ class FanZone(AutoFanBase):
         # Check global config enabled
         if not self._config.enabled:
             plan.exclusions.append(("⏸️", "Plugin is globally disabled"))
-            return plan
-
-        # Check for global behavior variable overrides (e.g., nobody home)
-        global_off = self._config.has_global_fan_off(self)
-        if global_off.contributions:
-            plan.contributions = global_off.contributions
-            plan.target_speed_pct = 0.0
-            if self.fan_dev_id:
-                current = self._get_current_speed_pct()
-                if current != 0.0:
-                    plan.device_changes.append(
-                        ("🔌", f"Turn off fan (was {current:.0f}%)")
-                    )
             return plan
 
         # Get temperature delta
