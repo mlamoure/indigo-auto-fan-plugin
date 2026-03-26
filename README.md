@@ -42,6 +42,16 @@ Warming curve (room cooler than ideal):
 
 At 75°F with ideal 72°F (delta = +3°), the cooling curve yields 50%. If HVAC is cooling (+15% modifier), final speed = 65%.
 
+### Zone Locking
+
+When someone manually changes a fan speed (via wall switch, Indigo UI, Siri, etc.), the zone **locks** for a configurable duration (default: 60 minutes). While locked, automation will not override the manual setting.
+
+- **Lock extension**: If presence is still detected in the zone when the lock is about to expire, the lock extends by the configured extension duration (default: 30 minutes). This keeps the fan at the manual setting as long as the room is occupied.
+- **Unlock**: The zone unlocks when the lock expires *and* no presence extension applies. Automation then resumes immediately and sets the fan to the calculated speed.
+- **Manual reset**: Locks can be cleared manually via the plugin menu or web interface.
+
+Both lock duration and extension duration can be overridden per-zone.
+
 ## Installation
 
 1. Download the latest release zip
