@@ -12,27 +12,30 @@
     For The Indigo Home Automation System
   </text>
 
-  <!-- Ceiling fan icon - positioned overlapping top-right corner -->
-  <g transform="translate(462, 30)" fill="white">
-    <!-- Center hub -->
-    <circle cx="0" cy="0" r="10" fill="white"/>
-    <circle cx="0" cy="0" r="5" fill="#1a1a1a"/>
+  <!-- Ceiling fan - bold, simple blades that read well at small sizes -->
+  <g transform="translate(458, 20)" fill="white">
 
-    <!-- 5 curved blades radiating from center -->
-    <!-- Blade 1 - up -->
-    <path d="M -4,-12 Q -8,-32 -22,-52 Q -10,-48 0,-32 Q 6,-48 18,-52 Q 8,-32 4,-12 Z"/>
-    <!-- Blade 2 - upper right -->
-    <path d="M 10,-6 Q 28,-16 50,-20 Q 42,-8 28,-2 Q 42,6 50,18 Q 28,10 10,6 Z"/>
-    <!-- Blade 3 - lower right -->
-    <path d="M 4,12 Q 14,28 18,50 Q 4,40 0,28 Q -6,40 -14,50 Q -8,28 -4,12 Z" transform="rotate(36, 0, 0)"/>
-    <!-- Blade 4 - lower left -->
-    <path d="M -10,6 Q -28,16 -50,20 Q -42,8 -28,2 Q -42,-6 -50,-18 Q -28,-10 -10,-6 Z" transform="rotate(8, 0, 0)"/>
-    <!-- Blade 5 - upper left -->
-    <path d="M -4,-12 Q -14,-28 -18,-50 Q -4,-40 0,-28 Q 6,-40 14,-50 Q 8,-28 4,-12 Z" transform="rotate(-36, 0, 0)"/>
+    <!--
+      Each blade is a teardrop/petal: elliptical, wide in the middle,
+      pointed at the hub end. Rotated 72° apart with slight clockwise
+      skew (10°) for motion feel.
+    -->
+    <g transform="rotate(10, 0, 0)">
+      <ellipse cx="0" cy="-36" rx="11" ry="26"/>
+      <ellipse cx="0" cy="-36" rx="11" ry="26" transform="rotate(72, 0, 0)"/>
+      <ellipse cx="0" cy="-36" rx="11" ry="26" transform="rotate(144, 0, 0)"/>
+      <ellipse cx="0" cy="-36" rx="11" ry="26" transform="rotate(216, 0, 0)"/>
+      <ellipse cx="0" cy="-36" rx="11" ry="26" transform="rotate(288, 0, 0)"/>
+    </g>
 
-    <!-- Curved motion lines -->
-    <path d="M 32,-40 Q 48,-28 50,-8" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round"/>
-    <path d="M 38,-46 Q 54,-32 58,-10" fill="none" stroke="white" stroke-width="2" stroke-linecap="round"/>
-    <path d="M 44,-50 Q 60,-36 64,-12" fill="none" stroke="white" stroke-width="1.2" stroke-linecap="round"/>
+    <!-- Center hub on top -->
+    <circle cx="0" cy="0" r="14" fill="white"/>
+    <circle cx="0" cy="0" r="7" fill="#1a1a1a"/>
+    <circle cx="0" cy="0" r="3" fill="white"/>
+
+    <!-- Motion arcs -->
+    <path d="M 44,-50 Q 64,-34 68,-8" fill="none" stroke="white" stroke-width="3" stroke-linecap="round"/>
+    <path d="M 52,-56 Q 72,-38 76,-10" fill="none" stroke="white" stroke-width="2" stroke-linecap="round"/>
+    <path d="M 60,-60 Q 78,-42 82,-12" fill="none" stroke="white" stroke-width="1.2" stroke-linecap="round"/>
   </g>
 </svg>
