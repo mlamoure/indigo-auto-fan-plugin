@@ -279,7 +279,7 @@ class IWSWebHandler:
 
         except Exception as e:
             logger.exception(f"Error handling IWS request: {e}")
-            return self._error_response(500, f"Internal Server Error: {str(e)}")
+            return self._safe_error_response(500, f"Internal Server Error: {str(e)}")
 
     def _handle_get(self, page: str, params: Dict[str, str]) -> Dict[str, Any]:
         """Handle GET requests with pre-parsed params from IWS."""
@@ -358,8 +358,47 @@ class IWSWebHandler:
                 if field_name != "submit"
             }
 
-            # Ensure top-level array fields are never None
-            self._normalize_array_fields(zone_data, ["temp_sensor_dev_ids", "presence_dev_ids"])
+            # Coerce array fields from string representations to actual lists
+            for arr_field in ["temp_sensor_dev_ids", "presence_dev_ids"]:
+                val = zone_data.get(arr_field)
+                if val is None:
+                    zone_data[arr_field] = []
+                elif isinstance(val, str):
+                    try:
+                        parsed = json.loads(val)
+                        zone_data[arr_field] = parsed if isinstance(parsed, list) else []
+                    except (json.JSONDecodeError, TypeError):
+                        zone_data[arr_field] = []
+
+            # Coerce integer fields from strings
+            for int_field in ["fan_dev_id", "thermostat_dev_id", "humidity_dev_id",
+                              "weather_dev_id_override", "zone_index", "indigo_dev_id",
+                              "ideal_temp_var_id", "lock_duration", "lock_extension_duration"]:
+                val = zone_data.get(int_field)
+                if val is not None and val != "":
+                    try:
+                        zone_data[int_field] = int(val)
+                    except (ValueError, TypeError):
+                        zone_data[int_field] = None
+                elif val == "":
+                    zone_data[int_field] = None
+
+            # Coerce float fields
+            for float_field in ["ideal_temp_value"]:
+                val = zone_data.get(float_field)
+                if val is not None and val != "":
+                    try:
+                        zone_data[float_field] = float(val)
+                    except (ValueError, TypeError):
+                        zone_data[float_field] = None
+                elif val == "":
+                    zone_data[float_field] = None
+
+            # Coerce boolean fields
+            for bool_field in ["enabled", "ideal_temp_use_variable"]:
+                val = zone_data.get(bool_field)
+                if isinstance(val, str):
+                    zone_data[bool_field] = val.lower() in ("true", "y", "1", "on", "yes")
 
             # Process speed curve breakpoints from hidden JSON fields
             cooling_bp_json = body_params.get("cooling_breakpoints_json", "")
@@ -613,9 +652,14 @@ class IWSWebHandler:
 
     def _render_index(self, flash: Optional[Dict[str, Optional[str]]] = None) -> Dict[str, Any]:
         """Render the index/home page."""
-        template = self.jinja_env.get_template('index.html')
-        html = template.render(flash=flash or {})
-        return create_html_response(html)
+        try:
+            template = self.jinja_env.get_template('index.html')
+            html = template.render(flash=flash or {})
+            logger.debug(f"_render_index: rendered {len(html)} bytes")
+            return create_html_response(html)
+        except Exception as e:
+            logger.exception(f"Error rendering index page: {e}")
+            return self._safe_error_response(500, f"Error rendering index: {str(e)}")
 
     def _render_zones(self, flash: Optional[Dict[str, Optional[str]]] = None) -> Dict[str, Any]:
         """Render the zones list page."""
@@ -730,7 +774,7 @@ class IWSWebHandler:
                 # Helper function to update _var_id fields recursively
                 def update_var_id_fields(form_obj):
                     for field_name, field in form_obj._fields.items():
-                        if field_name.endswith("_var_id"):
+                        if field_name.endswith("_var_id") and hasattr(field, 'choices'):
                             field.choices = var_choices
                         # Recursively handle nested FormFields
                         elif hasattr(field, 'form'):
@@ -943,8 +987,17 @@ class IWSWebHandler:
 
     def _error_response(self, status: int, message: str) -> Dict[str, Any]:
         """Generate an error response using indigo.Dict() format."""
-        template = self.jinja_env.get_template('config_editor_error.html')
-        html = template.render(message=message)
+        try:
+            template = self.jinja_env.get_template('config_editor_error.html')
+            html = template.render(message=message)
+            return create_html_response(html, status=status)
+        except Exception as e:
+            logger.exception(f"Error rendering error page: {e}")
+            return self._safe_error_response(status, message)
+
+    def _safe_error_response(self, status: int, message: str) -> Dict[str, Any]:
+        """Generate a plain HTML error response without templates (cannot fail)."""
+        html = f"<html><body><h1>{status} Error</h1><pre>{message}</pre></body></html>"
         return create_html_response(html, status=status)
 
     # Static files are now automatically served from Resources/static/ by IWS

@@ -156,7 +156,7 @@
       <div class="tooltip-info" style="display:none;"></div>
       {{ field() }}
     </fieldset>
-  {% elif field.name.endswith('_dev_ids') %}
+  {% elif field.name.endswith('_dev_ids') and field.choices is defined %}
     <div class="form-field">
       <div class="multiple-select-row" style="display:flex; align-items:center;">
         <label class="tooltip-label" data-tooltip="{{ field.description }}" style="display:inline-block; width:200px; vertical-align:middle;">{{ field.label.text }}{% if is_required and not has_default %}<span class="required-marker" title="This field is required">*</span>{% endif %}</label>

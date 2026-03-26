@@ -1,0 +1,349 @@
+/* Main CSS for Indigo Auto Lights */
+body {
+    font-family: Arial, sans-serif;
+    background-color: #f7f7f7;
+    margin: 0;
+    padding: 0;
+}
+
+#header {
+    display: flex;
+    align-items: center;
+    padding: 10px;
+    background-color: #ddd;
+    border-bottom: 2px solid #aaa;
+}
+
+#container {
+    display: flex;
+}
+
+#content {
+    flex: 1;
+    padding: 20px;
+}
+
+#sidebar {
+    width: auto;
+    background: #fff;
+    border-right: 1px solid #ccc;
+    padding: 20px;
+    display: inline-block;
+}
+
+#sidebar.collapsed {
+    padding: 5px;
+}
+
+.form-field {
+    margin-bottom: 10px;
+}
+
+.form-field label {
+    display: inline-block;
+    width: 200px;
+    vertical-align: middle;
+}
+
+.btn {
+    background-color: #007BFF;
+    color: white;
+    display: inline-block;
+    font-size: inherit;
+    line-height: inherit;
+    text-decoration: none;
+    padding: 8px 12px;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+}
+
+.btn:hover {
+    background-color: #0056b3;
+}
+
+/* Multiple select container styling */
+.multiple-select-container {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 10px;
+}
+
+/* Removed .dual-select-label rule since label is now inlined with the form-field */
+
+.multiple-select-selects {
+    display: flex;
+    flex-direction: row;
+    gap: 10px;
+    flex: 1;
+}
+
+.multiple-select-selects .select-block {
+    display: flex;
+    flex-direction: column;
+}
+
+.multiple-select-selects .select-block label {
+    margin-bottom: 5px;
+}
+
+.multiple-select-selects .select-block select {
+    width: 200px;
+    height: 150px;
+}
+
+.select-block.buttons {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    justify-content: center;
+}
+
+/* Tooltip styling */
+.tooltip-info {
+    font-size: 0.8em;
+    background-color: #f0f8ff;
+    border: 1px solid #ccc;
+    padding: 5px;
+    border-radius: 4px;
+    margin-top: 5px;
+}
+
+/* Additional consolidated styles from templates */
+
+#info-label {
+    font-style: italic;
+    font-size: 0.85em;
+    color: darkgreen;
+    margin-left: 10px;
+}
+
+#sidebar ul li a .full-label {
+    display: inline;
+}
+
+#sidebar ul li a .abbr-label {
+    display: none;
+}
+
+#sidebar.collapsed ul li a .full-label {
+    display: none;
+}
+
+#sidebar.collapsed ul li a .abbr-label {
+    display: inline;
+    font-size: 1.5em;
+    /* Optionally, center the abbreviation */
+    text-align: center;
+    width: 100%;
+}
+
+body {
+    text-align: left;
+}
+
+.container {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+}
+
+.button-container {
+    display: flex;
+    justify-content: center;
+    gap: 20px;
+}
+
+.image-button {
+    cursor: pointer;
+    border: none;
+    background: none;
+    padding: 0;
+    outline: none;
+    transition: transform 0.3s;
+}
+
+.image-button:hover {
+    transform: scale(1.05);
+}
+
+.image-button img {
+    width: 200px;
+    height: 200px;
+    object-fit: cover;
+    border-radius: 8px;
+    border: 2px solid #ccc;
+}
+
+.label {
+    margin-top: 10px;
+    font-size: 1.2em;
+    color: #333;
+}
+
+table.zones-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-bottom: 20px;
+}
+
+table.zones-table th, table.zones-table td {
+    border: 1px solid #ccc;
+    padding: 8px;
+    text-align: left;
+}
+
+table.zones-table th {
+    background-color: #f2f2f2;
+}
+
+.edit-form {
+    text-align: left;
+}
+
+/* Ensure select boxes in multiple select container have a minimum width */
+.multiple-select-container select {
+    min-width: 90px;
+}
+
+.required-marker {
+    color: red;
+    margin-left: 4px;
+    font-weight: bold;
+}
+
+/* Additional Header Tabs Styling */
+.tabs {
+    background-color: #ddd;
+    padding: 10px;
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+    border-radius: 5px;
+}
+
+#header-nav .tab {
+    flex: 0 0 150px;
+    height: 30px;
+    line-height: 30px;
+    text-align: center;
+    text-decoration: none;
+    color: #333;
+    border: 1px solid #aaa;
+    border-radius: 4px;
+    background-color: #f5f5f5;
+    margin: 2px;
+}
+
+#header-nav .tab:hover {
+    background-color: #e0e0e0;
+}
+
+.page-title {
+    flex: 1 1 auto;
+    text-align: center;
+    font-size: 1.5em;
+    font-weight: bold;
+}
+
+.header-logo {
+    flex: 0 0 auto;
+    height: 100px;
+    margin-right: 1rem;
+}
+
+#header-nav {
+    flex: 0 0 auto;
+    display: flex;
+    flex-wrap: wrap;
+    width: 312px;    /* 2 × (150px tab + 4px margin + 2px border) */
+    height: 108px;   /* 3 rows × (30px tab + 4px margin + 2px border) */
+    margin-left: auto;
+}
+
+.instructions-container {
+    margin: 40px auto;
+    max-width: 800px;
+    padding: 20px;
+    background: #fff;
+    border: 1px solid #ccc;
+    border-radius: 8px;
+    text-align: left;
+}
+
+#documentation-snippet {
+    padding: 20px;
+    border-left: 1px solid #ddd;
+    border-right: 1px solid #ddd;
+    background-color: #fff;
+    margin: 20px 0;
+    line-height: 1.6;
+}
+
+#documentation-snippet h1,
+#documentation-snippet h2,
+#documentation-snippet h3,
+#documentation-snippet h4,
+#documentation-snippet h5,
+#documentation-snippet h6 {
+    margin-top: 1em;
+    margin-bottom: 0.5em;
+}
+
+#documentation-snippet p {
+    margin: 0.8em 0;
+}
+
+#documentation-snippet ul,
+#documentation-snippet ol {
+    margin: 0.8em 0;
+    padding-left: 1.5em;
+}
+
+#documentation-snippet blockquote {
+    border-left: 4px solid #ddd;
+    padding-left: 1em;
+    color: #666;
+    margin: 0.8em 0;
+}
+
+#documentation-snippet code {
+    background-color: #f6f8fa;
+    padding: 2px 4px;
+    border-radius: 3px;
+}
+
+#documentation-snippet pre {
+    background-color: #f6f8fa;
+    padding: 10px;
+    border-radius: 3px;
+    overflow: auto;
+}
+
+#documentation-snippet img {
+    max-width: 100%;
+}
+
+/* Reorder buttons for lighting periods */
+.reorder-buttons {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 5px;
+}
+
+.reorder-buttons button {
+  background-color: #f0f0f0;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  cursor: pointer;
+  padding: 4px 8px;
+  font-size: 14px;
+}
+
+.reorder-buttons button:hover {
+  background-color: #e0e0e0;
+}
