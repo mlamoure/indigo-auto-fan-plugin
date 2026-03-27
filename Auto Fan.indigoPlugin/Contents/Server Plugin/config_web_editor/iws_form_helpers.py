@@ -70,6 +70,14 @@ def create_field(field_name, field_schema):
         coerce_func = int if items_type == "integer" else str
         f = SelectMultipleField(label=label_text, description=tooltip_text, choices=choices, coerce=coerce_func, validators=validators)
 
+    # Integer/number enum fields (dropdowns with numeric values)
+    elif field_type in ("integer", "number") and field_schema.get("enum"):
+        enum_values = field_schema.get("enum", [])
+        enum_labels = field_schema.get("x-enum-labels", [str(v) for v in enum_values])
+        choices = list(zip(enum_values, enum_labels))
+        coerce_func = int if field_type == "integer" else float
+        f = SelectField(label=label_text, description=tooltip_text, choices=choices, coerce=coerce_func, validators=validators)
+
     # Integer fields
     elif field_type == "integer":
         f = IntegerField(label=label_text, description=tooltip_text, validators=validators)

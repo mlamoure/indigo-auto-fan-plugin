@@ -417,6 +417,10 @@ class IWSWebHandler:
                 if zone_data.get(dev_field) == -1:
                     zone_data[dev_field] = None
 
+            # Note: modifier integer fields (speed_boost_pct, clamp_min_pct, etc.)
+            # are coerced by WTForms SelectField(coerce=int) during form processing,
+            # so no manual coercion is needed here.
+
             # Coerce boolean fields
             for bool_field in ["enabled"]:
                 val = zone_data.get(bool_field)

@@ -291,3 +291,243 @@ class TestAutoFanConfig:
         assert "seasonal_curves" in zone_d
         for season in ("spring", "summer", "fall", "winter"):
             assert len(zone_d["seasonal_curves"][season]["points"]) == 7
+
+
+class TestMigrateModifiers:
+    """Tests for old-format modifier migration to dropdown-based integers."""
+
+    def test_migrate_hvac_cooling_enabled(self, fake_indigo):
+        from auto_fan.auto_fan_config import AutoFanConfig
+        zone_d = {
+            "name": "Test",
+            "modifiers": {
+                "hvac_cooling_active": {"enabled": True, "speed_adjust_pct": 15}
+            },
+        }
+        AutoFanConfig._migrate_zone(zone_d)
+        cool = zone_d["modifiers"]["hvac_cooling_active"]
+        assert "enabled" not in cool
+        assert "speed_adjust_pct" not in cool
+        assert cool["speed_boost_pct"] == 20  # 15 rounded to nearest 10
+        assert cool["clamp_min_pct"] == 0
+
+    def test_migrate_hvac_cooling_disabled(self, fake_indigo):
+        from auto_fan.auto_fan_config import AutoFanConfig
+        zone_d = {
+            "name": "Test",
+            "modifiers": {
+                "hvac_cooling_active": {"enabled": False, "speed_adjust_pct": 50}
+            },
+        }
+        AutoFanConfig._migrate_zone(zone_d)
+        cool = zone_d["modifiers"]["hvac_cooling_active"]
+        assert "enabled" not in cool
+        assert cool["speed_boost_pct"] == 0  # was disabled
+
+    def test_migrate_hvac_heating_enabled(self, fake_indigo):
+        from auto_fan.auto_fan_config import AutoFanConfig
+        zone_d = {
+            "name": "Test",
+            "modifiers": {
+                "hvac_heating_active": {"enabled": True, "speed_adjust_pct": -20, "clamp_min_pct": 5}
+            },
+        }
+        AutoFanConfig._migrate_zone(zone_d)
+        heat = zone_d["modifiers"]["hvac_heating_active"]
+        assert "enabled" not in heat
+        assert heat["speed_adjust_pct"] == -20  # -20 rounds to -20
+        assert heat["clamp_min_pct"] == 10  # 5 rounded to nearest 10
+
+    def test_migrate_hvac_heating_disabled(self, fake_indigo):
+        from auto_fan.auto_fan_config import AutoFanConfig
+        zone_d = {
+            "name": "Test",
+            "modifiers": {
+                "hvac_heating_active": {"enabled": False, "speed_adjust_pct": -30}
+            },
+        }
+        AutoFanConfig._migrate_zone(zone_d)
+        heat = zone_d["modifiers"]["hvac_heating_active"]
+        assert "enabled" not in heat
+        assert heat["speed_adjust_pct"] == 0  # was disabled
+        assert heat["clamp_min_pct"] == 0
+
+    def test_migrate_nighttime_enabled(self, fake_indigo):
+        from auto_fan.auto_fan_config import AutoFanConfig
+        zone_d = {
+            "name": "Test",
+            "modifiers": {
+                "nighttime": {
+                    "enabled": True, "clamp_min_pct": 0, "clamp_max_pct": 50,
+                    "night_start_hour": 22, "night_end_hour": 8,
+                }
+            },
+        }
+        AutoFanConfig._migrate_zone(zone_d)
+        night = zone_d["modifiers"]["nighttime"]
+        assert "enabled" not in night
+        assert night["clamp_max_pct"] == 50
+        assert night["clamp_min_pct"] == 0
+        assert night["night_start_hour"] == 22
+
+    def test_migrate_nighttime_disabled(self, fake_indigo):
+        from auto_fan.auto_fan_config import AutoFanConfig
+        zone_d = {
+            "name": "Test",
+            "modifiers": {
+                "nighttime": {
+                    "enabled": False, "clamp_min_pct": 10, "clamp_max_pct": 40,
+                    "night_start_hour": 22, "night_end_hour": 8,
+                }
+            },
+        }
+        AutoFanConfig._migrate_zone(zone_d)
+        night = zone_d["modifiers"]["nighttime"]
+        assert "enabled" not in night
+        assert night["clamp_max_pct"] == 100  # effectively disabled
+        assert night["clamp_min_pct"] == 0
+
+    def test_migrate_humidity_enabled(self, fake_indigo):
+        from auto_fan.auto_fan_config import AutoFanConfig
+        zone_d = {
+            "name": "Test",
+            "modifiers": {
+                "humidity": {
+                    "enabled": True, "threshold": 60,
+                    "speed_adjust_per_unit_pct": 0.5, "max_adjust_pct": 15,
+                }
+            },
+        }
+        AutoFanConfig._migrate_zone(zone_d)
+        hum = zone_d["modifiers"]["humidity"]
+        assert "enabled" not in hum
+        assert "speed_adjust_per_unit_pct" not in hum
+        assert "max_adjust_pct" not in hum
+        assert hum["speed_boost_pct"] == 20  # 15 rounded to nearest 10
+        assert hum["threshold"] == 60
+
+    def test_migrate_humidity_disabled(self, fake_indigo):
+        from auto_fan.auto_fan_config import AutoFanConfig
+        zone_d = {
+            "name": "Test",
+            "modifiers": {
+                "humidity": {
+                    "enabled": False, "threshold": 55,
+                    "speed_adjust_per_unit_pct": 0.5, "max_adjust_pct": 15,
+                }
+            },
+        }
+        AutoFanConfig._migrate_zone(zone_d)
+        hum = zone_d["modifiers"]["humidity"]
+        assert "enabled" not in hum
+        assert hum["speed_boost_pct"] == 0  # was disabled
+        assert hum["threshold"] == 55  # 55 rounds to 55
+
+    def test_migrate_no_presence_enabled(self, fake_indigo):
+        from auto_fan.auto_fan_config import AutoFanConfig
+        zone_d = {
+            "name": "Test",
+            "modifiers": {
+                "no_presence": {"enabled": True, "clamp_max_pct": 0}
+            },
+        }
+        AutoFanConfig._migrate_zone(zone_d)
+        no_pres = zone_d["modifiers"]["no_presence"]
+        assert "enabled" not in no_pres
+        assert no_pres["clamp_max_pct"] == 0
+
+    def test_migrate_no_presence_disabled(self, fake_indigo):
+        from auto_fan.auto_fan_config import AutoFanConfig
+        zone_d = {
+            "name": "Test",
+            "modifiers": {
+                "no_presence": {"enabled": False, "clamp_max_pct": 0}
+            },
+        }
+        AutoFanConfig._migrate_zone(zone_d)
+        no_pres = zone_d["modifiers"]["no_presence"]
+        assert "enabled" not in no_pres
+        assert no_pres["clamp_max_pct"] == 100  # effectively disabled
+
+    def test_no_migration_when_already_new_format(self, fake_indigo):
+        """New-format modifiers (no 'enabled' key) should pass through unchanged."""
+        from auto_fan.auto_fan_config import AutoFanConfig
+        zone_d = {
+            "name": "Test",
+            "modifiers": {
+                "hvac_cooling_active": {"speed_boost_pct": 20, "clamp_min_pct": 0},
+                "humidity": {"speed_boost_pct": 10, "threshold": 60},
+            },
+        }
+        AutoFanConfig._migrate_zone(zone_d)
+        assert zone_d["modifiers"]["hvac_cooling_active"]["speed_boost_pct"] == 20
+        assert zone_d["modifiers"]["humidity"]["speed_boost_pct"] == 10
+
+    def test_no_migration_when_no_modifiers(self, fake_indigo):
+        """Zones without modifiers should not crash."""
+        from auto_fan.auto_fan_config import AutoFanConfig
+        zone_d = {"name": "Test"}
+        AutoFanConfig._migrate_zone(zone_d)
+        assert "modifiers" not in zone_d
+
+    def test_migrate_all_modifiers_together(self, fake_indigo):
+        """Full zone with all 5 old-format modifiers migrated in one pass."""
+        import copy
+        from auto_fan.auto_fan_config import AutoFanConfig
+        zone_d = {
+            "name": "Full Zone",
+            "modifiers": {
+                "hvac_cooling_active": {"enabled": True, "speed_adjust_pct": 15},
+                "hvac_heating_active": {"enabled": True, "speed_adjust_pct": -20, "clamp_min_pct": 5},
+                "nighttime": {
+                    "enabled": True, "clamp_min_pct": 0, "clamp_max_pct": 50,
+                    "night_start_hour": 22, "night_end_hour": 8,
+                },
+                "humidity": {
+                    "enabled": True, "threshold": 60,
+                    "speed_adjust_per_unit_pct": 0.5, "max_adjust_pct": 15,
+                },
+                "no_presence": {"enabled": True, "clamp_max_pct": 0},
+            },
+        }
+        AutoFanConfig._migrate_zone(zone_d)
+        mods = zone_d["modifiers"]
+
+        # No 'enabled' keys remain
+        for mod in mods.values():
+            assert "enabled" not in mod
+
+        # Cooling
+        assert mods["hvac_cooling_active"]["speed_boost_pct"] == 20
+        assert mods["hvac_cooling_active"]["clamp_min_pct"] == 0
+
+        # Heating
+        assert mods["hvac_heating_active"]["speed_adjust_pct"] == -20
+        assert mods["hvac_heating_active"]["clamp_min_pct"] == 10
+
+        # Nighttime
+        assert mods["nighttime"]["clamp_max_pct"] == 50
+        assert mods["nighttime"]["night_start_hour"] == 22
+
+        # Humidity
+        assert mods["humidity"]["speed_boost_pct"] == 20
+        assert "speed_adjust_per_unit_pct" not in mods["humidity"]
+
+        # No presence
+        assert mods["no_presence"]["clamp_max_pct"] == 0
+
+    def test_migration_is_idempotent(self, fake_indigo):
+        """Running migration twice produces identical results."""
+        import copy
+        from auto_fan.auto_fan_config import AutoFanConfig
+        zone_d = {
+            "name": "Test",
+            "modifiers": {
+                "hvac_cooling_active": {"enabled": True, "speed_adjust_pct": 25},
+                "no_presence": {"enabled": False, "clamp_max_pct": 0},
+            },
+        }
+        AutoFanConfig._migrate_zone(zone_d)
+        after_first = copy.deepcopy(zone_d)
+        AutoFanConfig._migrate_zone(zone_d)
+        assert zone_d == after_first

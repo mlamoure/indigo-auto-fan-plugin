@@ -67,6 +67,83 @@ def _convert_dual_curves_to_unified(old_curves: dict) -> dict:
     return {"temperature_range": temp_range, "num_points": num_points, "points": points}
 
 
+def _round_to_nearest(val, step, lo=0, hi=100):
+    """Round a numeric value to the nearest multiple of step, clamped to [lo, hi].
+
+    Uses half-away-from-zero rounding (5 → 10, -5 → -10) to preserve user intent.
+    """
+    if val >= 0:
+        rounded = math.floor(val / step + 0.5) * step
+    else:
+        rounded = math.ceil(val / step - 0.5) * step
+    return max(lo, min(hi, rounded))
+
+
+def _migrate_modifiers(zone_d: dict) -> None:
+    """Migrate old-format modifiers (enabled + numeric) to dropdown-based integers.
+
+    Detects old format by presence of 'enabled' key in any modifier sub-dict.
+    """
+    mods = zone_d.get("modifiers")
+    if not mods:
+        return
+
+    # HVAC Cooling: enabled + speed_adjust_pct → speed_boost_pct + clamp_min_pct
+    cool = mods.get("hvac_cooling_active", {})
+    if "enabled" in cool:
+        if cool.pop("enabled"):
+            old_val = cool.pop("speed_adjust_pct", 15)
+            cool["speed_boost_pct"] = _round_to_nearest(max(0, old_val), 10)
+        else:
+            cool.pop("speed_adjust_pct", None)
+            cool["speed_boost_pct"] = 0
+        cool.setdefault("clamp_min_pct", 0)
+
+    # HVAC Heating: enabled + speed_adjust_pct (negative) → speed_adjust_pct (bidirectional)
+    heat = mods.get("hvac_heating_active", {})
+    if "enabled" in heat:
+        if heat.pop("enabled"):
+            old_val = heat.get("speed_adjust_pct", -20)
+            heat["speed_adjust_pct"] = _round_to_nearest(old_val, 10, lo=-100, hi=100)
+        else:
+            heat["speed_adjust_pct"] = 0
+        if "clamp_min_pct" in heat:
+            heat["clamp_min_pct"] = _round_to_nearest(heat["clamp_min_pct"], 10)
+        else:
+            heat["clamp_min_pct"] = 0
+
+    # Nighttime: enabled → implicit via clamp values
+    night = mods.get("nighttime", {})
+    if "enabled" in night:
+        if night.pop("enabled"):
+            night["clamp_min_pct"] = _round_to_nearest(night.get("clamp_min_pct", 0), 10)
+            night["clamp_max_pct"] = _round_to_nearest(night.get("clamp_max_pct", 50), 10)
+        else:
+            night["clamp_min_pct"] = 0
+            night["clamp_max_pct"] = 100  # Effectively disabled
+
+    # Humidity: enabled + proportional → flat boost
+    hum = mods.get("humidity", {})
+    if "enabled" in hum:
+        if hum.pop("enabled"):
+            old_max = hum.pop("max_adjust_pct", 15)
+            hum["speed_boost_pct"] = _round_to_nearest(max(0, old_max), 10)
+        else:
+            hum.pop("max_adjust_pct", None)
+            hum["speed_boost_pct"] = 0
+        hum.pop("speed_adjust_per_unit_pct", None)
+        if "threshold" in hum:
+            hum["threshold"] = _round_to_nearest(hum["threshold"], 5, lo=40, hi=80)
+
+    # No Presence: enabled → implicit via clamp value
+    no_pres = mods.get("no_presence", {})
+    if "enabled" in no_pres:
+        if no_pres.pop("enabled"):
+            no_pres["clamp_max_pct"] = _round_to_nearest(no_pres.get("clamp_max_pct", 0), 10)
+        else:
+            no_pres["clamp_max_pct"] = 100  # Effectively disabled
+
+
 class AutoFanConfig(AutoFanBase):
     """
     Configuration handler for the Auto Fan plugin.
@@ -238,6 +315,9 @@ class AutoFanConfig(AutoFanBase):
             zone_d["seasonal_curves"] = {s: dict(curve) for s in SEASONS}
         elif "fan_curve" in zone_d and "seasonal_curves" in zone_d:
             zone_d.pop("fan_curve")
+
+        # Migrate old-format modifiers (enabled + numeric) → dropdown integers
+        _migrate_modifiers(zone_d)
 
     @property
     def zones(self) -> List[FanZone]:

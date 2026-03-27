@@ -82,12 +82,15 @@ def apply_modifiers(
     Apply modifier stack to base speed.
 
     Modifier order:
-    1. HVAC cooling active: additive boost
-    2. HVAC heating active: additive reduction + clamp
-    3. Humidity: additive boost based on excess over threshold
+    1. HVAC cooling active: additive boost + min clamp
+    2. HVAC heating active: additive adjustment (+ or -) + min clamp
+    3. Humidity: flat boost when above threshold
     4. Nighttime: clamp to range
     5. No presence: cap speed
     6. Final clamp to 0-100
+
+    Modifiers are implicitly disabled when their primary value is at the
+    neutral position (e.g., speed_boost_pct=0, clamp_max_pct=100).
 
     Args:
         base_speed: Speed from curve interpolation.
@@ -104,43 +107,57 @@ def apply_modifiers(
     contributions: List[Tuple[str, str]] = []
 
     # 1. HVAC cooling modifier
+    # Boost and clamp_min are checked separately so each gets its own log entry,
+    # and clamp_min works even without a boost (e.g., "always run at least 30%
+    # when AC is on").
     hvac_cool = modifiers.get("hvac_cooling_active", {})
-    if hvac_cool.get("enabled", False) and is_hvac_cooling:
-        adj = hvac_cool.get("speed_adjust_pct", 0)
-        speed += adj
-        contributions.append(("❄️", f"HVAC cooling active: +{adj}%"))
+    if is_hvac_cooling:
+        boost = hvac_cool.get("speed_boost_pct", 0)
+        clamp_min = hvac_cool.get("clamp_min_pct", 0)
+        if boost:
+            speed += boost
+            contributions.append(("❄️", f"HVAC cooling active: +{boost}%"))
+        if clamp_min and speed < clamp_min:
+            speed = clamp_min
+            contributions.append(("❄️", f"HVAC cooling min: {clamp_min}%"))
 
     # 2. HVAC heating modifier
+    # speed_adjust_pct supports both positive (circulate warm air via reverse mode)
+    # and negative (reduce airflow during heating) values.
     hvac_heat = modifiers.get("hvac_heating_active", {})
-    if hvac_heat.get("enabled", False) and is_hvac_heating:
+    if is_hvac_heating:
         adj = hvac_heat.get("speed_adjust_pct", 0)
-        speed += adj
         clamp_min = hvac_heat.get("clamp_min_pct", 0)
-        speed = max(speed, clamp_min)
-        contributions.append(("🔥", f"HVAC heating active: {adj:+}%"))
+        if adj:
+            speed += adj
+            contributions.append(("🔥", f"HVAC heating active: {adj:+}%"))
+        if clamp_min and speed < clamp_min:
+            speed = clamp_min
+            contributions.append(("🔥", f"HVAC heating min: {clamp_min}%"))
 
     # 3. Humidity modifier
+    # Flat boost: full speed_boost_pct applied when humidity exceeds threshold.
+    # Simpler than the previous proportional model and matches the dropdown UI.
     hum_mod = modifiers.get("humidity", {})
-    if hum_mod.get("enabled", False) and humidity is not None:
+    if humidity is not None:
+        boost = hum_mod.get("speed_boost_pct", 0)
         threshold = hum_mod.get("threshold", 60)
-        if humidity > threshold:
-            excess = humidity - threshold
-            per_unit = hum_mod.get("speed_adjust_per_unit_pct", 0.5)
-            max_adj = hum_mod.get("max_adjust_pct", 15)
-            adj = min(excess * per_unit, max_adj)
-            speed += adj
+        if boost and humidity > threshold:
+            speed += boost
             contributions.append(
-                ("💧", f"Humidity {humidity:.0f}% (>{threshold}%): +{adj:.1f}%")
+                ("💧", f"Humidity {humidity:.0f}% (>{threshold}%): +{boost}%")
             )
 
     # 4. Nighttime clamp
+    # Neutral values (min=0, max=100) implicitly disable this modifier,
+    # avoiding the need for a separate "enabled" flag.
     night_mod = modifiers.get("nighttime", {})
-    if night_mod.get("enabled", False):
+    clamp_min = night_mod.get("clamp_min_pct", 0)
+    clamp_max = night_mod.get("clamp_max_pct", 100)
+    if clamp_max < 100 or clamp_min > 0:
         start_hour = night_mod.get("night_start_hour", 22)
         end_hour = night_mod.get("night_end_hour", 8)
         if _is_nighttime(start_hour, end_hour):
-            clamp_min = night_mod.get("clamp_min_pct", 0)
-            clamp_max = night_mod.get("clamp_max_pct", 50)
             old_speed = speed
             speed = max(clamp_min, min(speed, clamp_max))
             if speed != old_speed:
@@ -149,9 +166,10 @@ def apply_modifiers(
                 )
 
     # 5. No presence cap
+    # clamp_max_pct=100 implicitly disables (no cap).
     no_pres = modifiers.get("no_presence", {})
-    if no_pres.get("enabled", False) and not has_presence:
-        cap = no_pres.get("clamp_max_pct", 0)
+    cap = no_pres.get("clamp_max_pct", 100)
+    if not has_presence and cap < 100:
         old_speed = speed
         speed = min(speed, cap)
         if speed != old_speed:
