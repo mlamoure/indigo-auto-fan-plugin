@@ -114,6 +114,15 @@ Two Indigo device types, both relay-based (on/off = enabled/disabled):
   - `zone_locked`, `lock_expiration`
   - `humidity`, `outdoor_temperature`
 
+### Zone Device Fields
+
+- **`fan_dev_id`** — Single select: SpeedControl, Dimmer, or Relay devices
+- **`temp_sensor_dev_ids`** — Multi-select: SensorDevice (averaged if multiple)
+- **`presence_dev_ids`** — Multi-select: SensorDevice (OR logic — any = present)
+- **`thermostat_dev_id`** — Single select: ThermostatDevice
+- **`humidity_dev_ids`** — Multi-select: SensorDevice (averaged if multiple)
+- **`ideal_temp_source`** — Enum: `"static"` (fixed value), `"variable"` (Indigo variable), `"thermostat"` (uses heat/cool setpoints, or their average when both exist)
+
 ## Speed Model
 
 Each zone uses a **dual-curve** system:

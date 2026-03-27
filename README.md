@@ -81,10 +81,10 @@ http://localhost:8176/message/com.vtmikel.autofan/web_ui/
 |---------|-------------|
 | Fan Device | The fan to control (SpeedControl, Dimmer, or Relay) |
 | Temperature Sensors | One or more temp sensors (averaged if multiple) |
-| Ideal Temperature | Fixed value or Indigo variable |
+| Ideal Temperature Source | How to determine the target temperature: **Static** (fixed value), **Variable** (from an Indigo variable), or **Thermostat** (uses heat setpoint, cool setpoint, or average of both) |
 | Presence Sensors | Motion/virtual presence devices |
-| Thermostat | For HVAC mode auto-detection |
-| Humidity Sensor | For humidity-based speed boost |
+| Thermostat | For HVAC mode auto-detection and optional ideal temperature source |
+| Humidity Sensors | One or more humidity sensors for speed boost (averaged if multiple) |
 | Speed Curves | Breakpoint arrays for cooling and warming |
 | Modifiers | HVAC, nighttime, humidity, presence adjustments |
 

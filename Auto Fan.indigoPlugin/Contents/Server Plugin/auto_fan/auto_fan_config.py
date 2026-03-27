@@ -130,6 +130,7 @@ class AutoFanConfig(AutoFanBase):
         self._zones = []
         zones_data = data.get("zones", [])
         for zone_d in zones_data:
+            self._migrate_zone(zone_d)
             z = FanZone(zone_d.get("name", "Unnamed"), self)
             z.from_config_dict(zone_d)
             self._zones.append(z)
@@ -147,6 +148,26 @@ class AutoFanConfig(AutoFanBase):
             z.calculate_target_speed()
 
         self._debug_log("from_config_dict finished")
+
+    @staticmethod
+    def _migrate_zone(zone_d: dict) -> None:
+        """Migrate legacy zone config fields to current schema."""
+        # humidity_dev_id (single int) → humidity_dev_ids (list)
+        if "humidity_dev_id" in zone_d and "humidity_dev_ids" not in zone_d:
+            old_val = zone_d.pop("humidity_dev_id")
+            zone_d["humidity_dev_ids"] = [old_val] if old_val is not None else []
+        elif "humidity_dev_id" in zone_d:
+            zone_d.pop("humidity_dev_id")
+
+        # ideal_temp_use_variable (bool) → ideal_temp_source (enum)
+        if "ideal_temp_use_variable" in zone_d and "ideal_temp_source" not in zone_d:
+            old_val = zone_d.pop("ideal_temp_use_variable")
+            zone_d["ideal_temp_source"] = "variable" if old_val else "static"
+        elif "ideal_temp_use_variable" in zone_d:
+            zone_d.pop("ideal_temp_use_variable")
+
+        # Remove deprecated weather_dev_id_override
+        zone_d.pop("weather_dev_id_override", None)
 
     @property
     def zones(self) -> List[FanZone]:

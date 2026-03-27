@@ -34,12 +34,11 @@ class FanZone(AutoFanBase):
         self.temp_sensor_dev_ids: List[int] = []
         self.presence_dev_ids: List[int] = []
         self.thermostat_dev_id: Optional[int] = None
-        self.humidity_dev_id: Optional[int] = None
-        self.weather_dev_id_override: Optional[int] = None
+        self.humidity_dev_ids: List[int] = []
 
         # Temperature settings
         self.ideal_temp_value: float = 72.0
-        self.ideal_temp_use_variable: bool = False
+        self.ideal_temp_source: str = "static"
         self.ideal_temp_var_id: Optional[int] = None
 
         # Speed curves
@@ -105,11 +104,10 @@ class FanZone(AutoFanBase):
         self.temp_sensor_dev_ids = data.get("temp_sensor_dev_ids", [])
         self.presence_dev_ids = data.get("presence_dev_ids", [])
         self.thermostat_dev_id = data.get("thermostat_dev_id")
-        self.humidity_dev_id = data.get("humidity_dev_id")
-        self.weather_dev_id_override = data.get("weather_dev_id_override")
+        self.humidity_dev_ids = data.get("humidity_dev_ids", [])
 
         self.ideal_temp_value = data.get("ideal_temp_value", 72.0)
-        self.ideal_temp_use_variable = data.get("ideal_temp_use_variable", False)
+        self.ideal_temp_source = data.get("ideal_temp_source", "static")
         self.ideal_temp_var_id = data.get("ideal_temp_var_id")
 
         self.speed_curves = data.get("speed_curves", self.speed_curves)
@@ -147,12 +145,24 @@ class FanZone(AutoFanBase):
         return sum(temps) / len(temps)
 
     def get_ideal_temperature(self) -> Optional[float]:
-        """Get ideal temperature from variable or fixed value."""
-        if self.ideal_temp_use_variable and self.ideal_temp_var_id:
+        """Get ideal temperature based on configured source."""
+        if self.ideal_temp_source == "variable" and self.ideal_temp_var_id:
             try:
                 return float(indigo.variables[self.ideal_temp_var_id].value)
             except Exception:
                 pass
+            return self.ideal_temp_value
+        elif self.ideal_temp_source == "thermostat":
+            heat = self.get_heat_setpoint()
+            cool = self.get_cool_setpoint()
+            if heat is not None and cool is not None:
+                # Midpoint between heating and cooling thresholds
+                return (heat + cool) / 2.0
+            elif heat is not None:
+                return heat
+            elif cool is not None:
+                return cool
+            return self.ideal_temp_value
         return self.ideal_temp_value
 
     def get_temperature_delta(self) -> Optional[float]:
@@ -164,24 +174,32 @@ class FanZone(AutoFanBase):
         return current - ideal
 
     def get_humidity(self) -> Optional[float]:
-        """Get current humidity from sensor."""
-        if not self.humidity_dev_id:
+        """Get current humidity (average of multiple sensors if configured)."""
+        if not self.humidity_dev_ids:
             return None
-        try:
-            dev = indigo.devices[self.humidity_dev_id]
-            for key in ("sensorValue", "humidity", "relativeHumidity"):
-                if key in dev.states:
-                    try:
-                        return float(dev.states[key])
-                    except (ValueError, TypeError):
-                        continue
-        except Exception as e:
-            self._debug_log(f"Error reading humidity sensor {self.humidity_dev_id}: {e}")
-        return None
+
+        readings = []
+        for dev_id in self.humidity_dev_ids:
+            try:
+                dev = indigo.devices[dev_id]
+                for key in ("sensorValue", "humidity", "relativeHumidity"):
+                    if key in dev.states:
+                        try:
+                            readings.append(float(dev.states[key]))
+                            break
+                        except (ValueError, TypeError):
+                            continue
+            except Exception as e:
+                self._debug_log(f"Error reading humidity sensor {dev_id}: {e}")
+                continue
+
+        if not readings:
+            return None
+        return sum(readings) / len(readings)
 
     def get_outdoor_temperature(self) -> Optional[float]:
-        """Get outdoor temperature from weather device (zone override or global)."""
-        weather_id = self.weather_dev_id_override or getattr(self._config, "weather_dev_id", None)
+        """Get outdoor temperature from global weather device."""
+        weather_id = getattr(self._config, "weather_dev_id", None)
         if not weather_id:
             return None
         try:
@@ -421,9 +439,9 @@ class FanZone(AutoFanBase):
             return True
         if dev_id == self.thermostat_dev_id:
             return True
-        if dev_id == self.humidity_dev_id:
+        if dev_id in self.humidity_dev_ids:
             return True
-        weather_id = self.weather_dev_id_override or getattr(self._config, "weather_dev_id", None)
+        weather_id = getattr(self._config, "weather_dev_id", None)
         if dev_id == weather_id:
             return True
         return False
@@ -434,7 +452,7 @@ class FanZone(AutoFanBase):
 
     def has_variable(self, var_id: int) -> bool:
         """Check if a variable ID is relevant to this zone."""
-        if self.ideal_temp_use_variable and var_id == self.ideal_temp_var_id:
+        if self.ideal_temp_source == "variable" and var_id == self.ideal_temp_var_id:
             return True
         return False
 

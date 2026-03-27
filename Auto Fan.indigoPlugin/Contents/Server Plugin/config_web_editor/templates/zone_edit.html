@@ -15,9 +15,39 @@
     <div id="content">
         {% from "_form_macros.html" import render_field, save_overlay %}
         <form method="POST" id="zone-config-form" class="edit-form">
-            {% for field in zone_form if field.name not in ['submit', 'csrf_token', 'speed_curves', 'modifiers', 'global_behavior_variables_map'] %}
+            {# Preserve internal fields as hidden inputs so they survive form submission #}
+            {% if zone_form.enabled is defined %}
+            <input type="hidden" name="enabled" value="{{ 'y' if zone_form.enabled.data else '' }}">
+            {% endif %}
+            {% if zone_form.zone_index is defined %}
+            <input type="hidden" name="zone_index" value="{{ zone_form.zone_index.data or 0 }}">
+            {% endif %}
+            {% if zone_form.indigo_dev_id is defined %}
+            <input type="hidden" name="indigo_dev_id" value="{{ zone_form.indigo_dev_id.data or '' }}">
+            {% endif %}
+
+            {% for field in zone_form if field.name not in ['submit', 'csrf_token', 'speed_curves', 'modifiers', 'global_behavior_variables_map', 'enabled', 'indigo_dev_id', 'zone_index', 'ideal_temp_value', 'ideal_temp_var_id', 'ideal_temp_source'] %}
             {{ render_field(field) }}
             {% endfor %}
+
+            {# Ideal Temperature Section #}
+            {% if zone_form.ideal_temp_source is defined %}
+            <fieldset class="group-box">
+                <legend>Ideal Temperature</legend>
+                {{ render_field(zone_form.ideal_temp_source) }}
+                <div id="ideal-temp-static" style="{% if zone_form.ideal_temp_source.data != 'static' %}display:none;{% endif %}">
+                    {{ render_field(zone_form.ideal_temp_value) }}
+                </div>
+                <div id="ideal-temp-variable" style="{% if zone_form.ideal_temp_source.data != 'variable' %}display:none;{% endif %}">
+                    {{ render_field(zone_form.ideal_temp_var_id) }}
+                </div>
+                <div id="ideal-temp-thermostat" style="{% if zone_form.ideal_temp_source.data != 'thermostat' %}display:none;{% endif %}">
+                    <p style="font-style:italic; margin:8px 0;">
+                        Uses the thermostat's heat setpoint, cool setpoint, or an average of both when in auto mode.
+                    </p>
+                </div>
+            </fieldset>
+            {% endif %}
 
             {# Speed Curves Section #}
             {% if zone_form.speed_curves is defined %}
@@ -361,26 +391,21 @@
     </script>
     <script>
         document.addEventListener('DOMContentLoaded', function () {
-            // Toggle ideal temp variable vs static value
-            var useVarCheckbox = document.querySelector('input[name="ideal_temp_use_variable"]');
-            var idealTempInput = document.querySelector('input[name="ideal_temp_value"]');
-            var idealTempVarSelect = document.querySelector('select[name="ideal_temp_var_id"]');
+            var sourceSelect = document.querySelector('select[name="ideal_temp_source"]');
+            if (!sourceSelect) return;
 
-            function updateIdealTempFields() {
-                if (!useVarCheckbox) return;
-                if (useVarCheckbox.checked) {
-                    if (idealTempInput) idealTempInput.disabled = true;
-                    if (idealTempVarSelect) idealTempVarSelect.disabled = false;
-                } else {
-                    if (idealTempInput) idealTempInput.disabled = false;
-                    if (idealTempVarSelect) idealTempVarSelect.disabled = true;
-                }
+            function updateIdealTempSections() {
+                var val = sourceSelect.value;
+                var staticDiv = document.getElementById('ideal-temp-static');
+                var variableDiv = document.getElementById('ideal-temp-variable');
+                var thermostatDiv = document.getElementById('ideal-temp-thermostat');
+                if (staticDiv) staticDiv.style.display = (val === 'static') ? '' : 'none';
+                if (variableDiv) variableDiv.style.display = (val === 'variable') ? '' : 'none';
+                if (thermostatDiv) thermostatDiv.style.display = (val === 'thermostat') ? '' : 'none';
             }
 
-            if (useVarCheckbox) {
-                useVarCheckbox.addEventListener('change', updateIdealTempFields);
-                updateIdealTempFields();
-            }
+            sourceSelect.addEventListener('change', updateIdealTempSections);
+            updateIdealTempSections();
         });
     </script>
 </div>

@@ -118,3 +118,59 @@ class TestAutoFanConfig:
             "zones": [],
         })
         assert config.weather_dev_id == 999
+
+    def test_load_zone_with_new_fields(self, fake_indigo):
+        """Verify new schema fields load correctly."""
+        config = self._make_config({
+            "plugin_config": {
+                "enabled": True,
+                "default_lock_duration": 60,
+                "default_lock_extension_duration": 30,
+            },
+            "zones": [
+                {
+                    "name": "New Schema Zone",
+                    "fan_dev_id": 100,
+                    "temp_sensor_dev_ids": [200],
+                    "presence_dev_ids": [300],
+                    "humidity_dev_ids": [400, 401],
+                    "ideal_temp_source": "thermostat",
+                    "ideal_temp_var_id": 500,
+                    "ideal_temp_value": 74,
+                    "thermostat_dev_id": 600,
+                }
+            ],
+        })
+        zone = config.zones[0]
+        assert zone.humidity_dev_ids == [400, 401]
+        assert zone.ideal_temp_source == "thermostat"
+        assert zone.ideal_temp_var_id == 500
+        assert zone.ideal_temp_value == 74
+        assert zone.thermostat_dev_id == 600
+
+    def test_migration_preserves_new_fields_over_old(self, fake_indigo):
+        """When both old and new fields exist, new fields win."""
+        config = self._make_config({
+            "plugin_config": {
+                "enabled": True,
+                "default_lock_duration": 60,
+                "default_lock_extension_duration": 30,
+            },
+            "zones": [
+                {
+                    "name": "Mixed Fields",
+                    "fan_dev_id": 100,
+                    "temp_sensor_dev_ids": [200],
+                    "presence_dev_ids": [300],
+                    "humidity_dev_id": 400,
+                    "humidity_dev_ids": [401, 402],
+                    "ideal_temp_use_variable": True,
+                    "ideal_temp_source": "thermostat",
+                    "weather_dev_id_override": 500,
+                }
+            ],
+        })
+        zone = config.zones[0]
+        # New fields should be preserved, old fields discarded
+        assert zone.humidity_dev_ids == [401, 402]
+        assert zone.ideal_temp_source == "thermostat"

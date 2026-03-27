@@ -100,11 +100,64 @@ class TestFanZoneTemperature:
         fake_indigo.variables[500] = Variable(500, name="ideal_temp", value="70")
 
         zone, config = self._make_zone()
-        zone.ideal_temp_use_variable = True
+        zone.ideal_temp_source = "variable"
         zone.ideal_temp_var_id = 500
 
         assert zone.get_ideal_temperature() == 70.0
         assert zone.get_temperature_delta() == pytest.approx(5.0)
+
+    def test_ideal_temp_from_thermostat_both_setpoints(self, fake_indigo):
+        fake_indigo.devices[200] = Device(200, name="Temp", sensorValue=75.0)
+        fake_indigo.devices[200].states["sensorValue"] = 75.0
+        fake_indigo.devices[400] = Device(400, name="Thermostat", heatSetpoint=68.0, coolSetpoint=76.0)
+
+        zone, config = self._make_zone()
+        zone.thermostat_dev_id = 400
+        zone.ideal_temp_source = "thermostat"
+
+        assert zone.get_ideal_temperature() == 72.0  # (68 + 76) / 2
+
+    def test_ideal_temp_from_thermostat_heat_only(self, fake_indigo):
+        fake_indigo.devices[200] = Device(200, name="Temp", sensorValue=75.0)
+        fake_indigo.devices[200].states["sensorValue"] = 75.0
+        fake_indigo.devices[400] = Device(400, name="Thermostat", heatSetpoint=70.0)
+
+        zone, config = self._make_zone()
+        zone.thermostat_dev_id = 400
+        zone.ideal_temp_source = "thermostat"
+
+        assert zone.get_ideal_temperature() == 70.0
+
+    def test_ideal_temp_from_thermostat_cool_only(self, fake_indigo):
+        fake_indigo.devices[200] = Device(200, name="Temp", sensorValue=75.0)
+        fake_indigo.devices[200].states["sensorValue"] = 75.0
+        fake_indigo.devices[400] = Device(400, name="Thermostat", coolSetpoint=78.0)
+
+        zone, config = self._make_zone()
+        zone.thermostat_dev_id = 400
+        zone.ideal_temp_source = "thermostat"
+
+        assert zone.get_ideal_temperature() == 78.0
+
+    def test_ideal_temp_from_thermostat_no_setpoints_fallback(self, fake_indigo):
+        fake_indigo.devices[200] = Device(200, name="Temp", sensorValue=75.0)
+        fake_indigo.devices[200].states["sensorValue"] = 75.0
+
+        zone, config = self._make_zone()
+        zone.ideal_temp_source = "thermostat"
+        # No thermostat configured -> fallback to ideal_temp_value
+        assert zone.get_ideal_temperature() == 72.0
+
+    def test_ideal_temp_variable_fallback_on_error(self, fake_indigo):
+        """Variable lookup fails -> falls back to ideal_temp_value."""
+        fake_indigo.devices[200] = Device(200, name="Temp", sensorValue=75.0)
+        fake_indigo.devices[200].states["sensorValue"] = 75.0
+
+        zone, config = self._make_zone()
+        zone.ideal_temp_source = "variable"
+        zone.ideal_temp_var_id = 999  # non-existent variable
+
+        assert zone.get_ideal_temperature() == 72.0  # falls back to ideal_temp_value
 
     def test_no_sensors_returns_none(self, fake_indigo):
         zone, config = self._make_zone()
@@ -234,6 +287,32 @@ class TestFanZoneSpeedCalc:
         assert zone.has_device(300) is True   # presence
         assert zone.has_device(999) is False  # unknown
 
+    def test_has_device_with_humidity_ids(self, fake_indigo):
+        zone, config = self._make_zone()
+        zone.humidity_dev_ids = [400, 401]
+        assert zone.has_device(400) is True
+        assert zone.has_device(401) is True
+        assert zone.has_device(999) is False
+
+    def test_has_variable_with_variable_source(self, fake_indigo):
+        zone, config = self._make_zone()
+        zone.ideal_temp_source = "variable"
+        zone.ideal_temp_var_id = 500
+        assert zone.has_variable(500) is True
+        assert zone.has_variable(999) is False
+
+    def test_has_variable_with_static_source(self, fake_indigo):
+        zone, config = self._make_zone()
+        zone.ideal_temp_source = "static"
+        zone.ideal_temp_var_id = 500
+        assert zone.has_variable(500) is False
+
+    def test_has_variable_with_thermostat_source(self, fake_indigo):
+        zone, config = self._make_zone()
+        zone.ideal_temp_source = "thermostat"
+        zone.ideal_temp_var_id = 500
+        assert zone.has_variable(500) is False
+
 
 class TestFanZoneHVAC:
     """Tests for HVAC-related methods with a thermostat device."""
@@ -333,7 +412,18 @@ class TestFanZoneHumidity:
         dev.states["sensorValue"] = 65.0
         fake_indigo.devices[400] = dev
         zone, config = self._make_zone()
-        zone.humidity_dev_id = 400
+        zone.humidity_dev_ids = [400]
+        assert zone.get_humidity() == 65.0
+
+    def test_get_humidity_multiple_sensors_average(self, fake_indigo):
+        dev1 = Device(400, name="Humidity 1", sensorValue=60.0)
+        dev1.states["sensorValue"] = 60.0
+        fake_indigo.devices[400] = dev1
+        dev2 = Device(401, name="Humidity 2", sensorValue=70.0)
+        dev2.states["sensorValue"] = 70.0
+        fake_indigo.devices[401] = dev2
+        zone, config = self._make_zone()
+        zone.humidity_dev_ids = [400, 401]
         assert zone.get_humidity() == 65.0
 
     def test_get_humidity_no_sensor(self, fake_indigo):
@@ -347,14 +437,6 @@ class TestFanZoneOutdoorTemperature:
     def _make_zone(self):
         return TestFanZoneTemperature._make_zone(self)
 
-    def test_zone_override_weather_device(self, fake_indigo):
-        dev = Device(500, name="Weather Station")
-        dev.states["temp"] = 85.0
-        fake_indigo.devices[500] = dev
-        zone, config = self._make_zone()
-        zone.weather_dev_id_override = 500
-        assert zone.get_outdoor_temperature() == 85.0
-
     def test_global_config_weather_device(self, fake_indigo):
         dev = Device(600, name="Global Weather")
         dev.states["temp"] = 90.0
@@ -363,18 +445,51 @@ class TestFanZoneOutdoorTemperature:
         config.weather_dev_id = 600
         assert zone.get_outdoor_temperature() == 90.0
 
-    def test_zone_override_takes_precedence(self, fake_indigo):
-        dev_override = Device(500, name="Zone Weather")
-        dev_override.states["temp"] = 85.0
-        fake_indigo.devices[500] = dev_override
-        dev_global = Device(600, name="Global Weather")
-        dev_global.states["temp"] = 90.0
-        fake_indigo.devices[600] = dev_global
-        zone, config = self._make_zone()
-        zone.weather_dev_id_override = 500
-        config.weather_dev_id = 600
-        assert zone.get_outdoor_temperature() == 85.0
-
     def test_no_weather_device(self, fake_indigo):
         zone, config = self._make_zone()
         assert zone.get_outdoor_temperature() is None
+
+
+class TestConfigMigration:
+    """Tests for legacy config migration."""
+
+    def test_migrate_humidity_dev_id_to_ids(self, fake_indigo):
+        from auto_fan.auto_fan_config import AutoFanConfig
+        zone_d = {"name": "Test", "humidity_dev_id": 400}
+        AutoFanConfig._migrate_zone(zone_d)
+        assert zone_d.get("humidity_dev_ids") == [400]
+        assert "humidity_dev_id" not in zone_d
+
+    def test_migrate_humidity_dev_id_none(self, fake_indigo):
+        from auto_fan.auto_fan_config import AutoFanConfig
+        zone_d = {"name": "Test", "humidity_dev_id": None}
+        AutoFanConfig._migrate_zone(zone_d)
+        assert zone_d.get("humidity_dev_ids") == []
+        assert "humidity_dev_id" not in zone_d
+
+    def test_migrate_ideal_temp_use_variable_true(self, fake_indigo):
+        from auto_fan.auto_fan_config import AutoFanConfig
+        zone_d = {"name": "Test", "ideal_temp_use_variable": True}
+        AutoFanConfig._migrate_zone(zone_d)
+        assert zone_d.get("ideal_temp_source") == "variable"
+        assert "ideal_temp_use_variable" not in zone_d
+
+    def test_migrate_ideal_temp_use_variable_false(self, fake_indigo):
+        from auto_fan.auto_fan_config import AutoFanConfig
+        zone_d = {"name": "Test", "ideal_temp_use_variable": False}
+        AutoFanConfig._migrate_zone(zone_d)
+        assert zone_d.get("ideal_temp_source") == "static"
+        assert "ideal_temp_use_variable" not in zone_d
+
+    def test_migrate_removes_weather_override(self, fake_indigo):
+        from auto_fan.auto_fan_config import AutoFanConfig
+        zone_d = {"name": "Test", "weather_dev_id_override": 500}
+        AutoFanConfig._migrate_zone(zone_d)
+        assert "weather_dev_id_override" not in zone_d
+
+    def test_migrate_no_op_for_current_schema(self, fake_indigo):
+        from auto_fan.auto_fan_config import AutoFanConfig
+        zone_d = {"name": "Test", "humidity_dev_ids": [400], "ideal_temp_source": "static"}
+        AutoFanConfig._migrate_zone(zone_d)
+        assert zone_d["humidity_dev_ids"] == [400]
+        assert zone_d["ideal_temp_source"] == "static"

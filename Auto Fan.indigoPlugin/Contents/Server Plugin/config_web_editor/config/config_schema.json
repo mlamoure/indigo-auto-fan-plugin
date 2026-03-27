@@ -56,11 +56,15 @@
           "fan_dev_id": {
             "type": "integer",
             "x-sync_to_indigo": true,
+            "x-drop-down": true,
+            "x-include-device-classes": "indigo.SpeedControlDevice,indigo.DimmerDevice,indigo.RelayDevice",
             "title": "Fan Device"
           },
           "temp_sensor_dev_ids": {
             "type": "array",
             "x-sync_to_indigo": true,
+            "x-drop-down": true,
+            "x-include-device-classes": "indigo.SensorDevice",
             "items": {"type": "integer"},
             "title": "Temperature Sensor(s)",
             "tooltip": "One or more temp sensors. If multiple, average is used.",
@@ -69,6 +73,8 @@
           "presence_dev_ids": {
             "type": "array",
             "x-sync_to_indigo": true,
+            "x-drop-down": true,
+            "x-include-device-classes": "indigo.SensorDevice",
             "items": {"type": "integer"},
             "title": "Presence Sensors",
             "default": []
@@ -76,18 +82,19 @@
           "thermostat_dev_id": {
             "type": "integer",
             "x-sync_to_indigo": true,
+            "x-drop-down": true,
+            "x-include-device-classes": "indigo.ThermostatDevice",
             "title": "Thermostat"
           },
-          "humidity_dev_id": {
-            "type": "integer",
+          "humidity_dev_ids": {
+            "type": "array",
             "x-sync_to_indigo": true,
-            "title": "Humidity Sensor"
-          },
-          "weather_dev_id_override": {
-            "type": "integer",
-            "x-sync_to_indigo": true,
-            "title": "Weather Device Override",
-            "tooltip": "Override the global weather device for this zone."
+            "x-drop-down": true,
+            "x-include-device-classes": "indigo.SensorDevice",
+            "items": {"type": "integer"},
+            "title": "Humidity Sensor(s)",
+            "tooltip": "One or more humidity sensors. If multiple, average is used.",
+            "default": []
           },
           "ideal_temp_value": {
             "type": "number",
@@ -95,13 +102,16 @@
             "title": "Ideal Temperature",
             "default": 72
           },
-          "ideal_temp_use_variable": {
-            "type": "boolean",
-            "title": "Use Variable for Ideal Temp",
-            "default": false
+          "ideal_temp_source": {
+            "type": "string",
+            "title": "Ideal Temperature Source",
+            "enum": ["static", "variable", "thermostat"],
+            "default": "static",
+            "tooltip": "How to determine the ideal temperature. 'thermostat' uses the heat setpoint, cool setpoint, or average of both when in auto mode."
           },
           "ideal_temp_var_id": {
             "type": "integer",
+            "x-drop-down": true,
             "title": "Ideal Temperature Variable"
           },
           "speed_curves": {

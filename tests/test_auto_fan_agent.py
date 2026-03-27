@@ -203,7 +203,7 @@ class TestProcessVariableChange:
 
         # Set up zone 0 to use variable for ideal temp
         zone = agent.config.zones[0]
-        zone.ideal_temp_use_variable = True
+        zone.ideal_temp_source = "variable"
         zone.ideal_temp_var_id = 500
         fake_indigo.variables[500] = Variable(500, name="ideal_temp", value="70")
 

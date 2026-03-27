@@ -136,6 +136,24 @@ def create_html_response(html: str, status: int = 200) -> Dict[str, Any]:
     return reply
 
 
+def _filter_devices_by_class(devices, allowed_classes_str):
+    """
+    Filter devices by Indigo device class or deviceTypeId.
+
+    Checks both 'class' (SDK device type, e.g. indigo.SensorDevice) and
+    'deviceTypeId' (plugin-specific type, e.g. ha_fan) so that schema
+    filters work regardless of which classification the device exposes.
+    """
+    if not allowed_classes_str:
+        return devices
+    allowed = {cls.strip() for cls in allowed_classes_str.split(",")}
+    return [
+        d for d in devices
+        if d.get("class", "") in allowed
+        or d.get("deviceTypeId", "") in allowed
+    ]
+
+
 class IWSWebHandler:
     """
     Handles web requests through Indigo's Web Server (IWS) using Jinja2 for templating.
@@ -359,7 +377,7 @@ class IWSWebHandler:
             }
 
             # Coerce array fields from string representations to actual lists
-            for arr_field in ["temp_sensor_dev_ids", "presence_dev_ids"]:
+            for arr_field in ["temp_sensor_dev_ids", "presence_dev_ids", "humidity_dev_ids"]:
                 val = zone_data.get(arr_field)
                 if val is None:
                     zone_data[arr_field] = []
@@ -371,8 +389,8 @@ class IWSWebHandler:
                         zone_data[arr_field] = []
 
             # Coerce integer fields from strings
-            for int_field in ["fan_dev_id", "thermostat_dev_id", "humidity_dev_id",
-                              "weather_dev_id_override", "zone_index", "indigo_dev_id",
+            for int_field in ["fan_dev_id", "thermostat_dev_id",
+                              "zone_index", "indigo_dev_id",
                               "ideal_temp_var_id", "lock_duration", "lock_extension_duration"]:
                 val = zone_data.get(int_field)
                 if val is not None and val != "":
@@ -394,8 +412,13 @@ class IWSWebHandler:
                 elif val == "":
                     zone_data[float_field] = None
 
+            # Convert -1 sentinel to None for single-select device fields
+            for dev_field in ["fan_dev_id", "thermostat_dev_id"]:
+                if zone_data.get(dev_field) == -1:
+                    zone_data[dev_field] = None
+
             # Coerce boolean fields
-            for bool_field in ["enabled", "ideal_temp_use_variable"]:
+            for bool_field in ["enabled"]:
                 val = zone_data.get(bool_field)
                 if isinstance(val, str):
                     zone_data[bool_field] = val.lower() in ("true", "y", "1", "on", "yes")
@@ -750,25 +773,33 @@ class IWSWebHandler:
             ZonesFormClass = generate_form_class_from_schema(zone_schema)
             zone_form = ZonesFormClass(data=zone)
 
-            # Update choices for device dropdowns with cached data
+            # Update choices for device dropdowns with cached data (schema-driven)
             try:
                 devices = self.config_editor.get_cached_indigo_devices()
                 logger.debug(f"[Zone Edit] Got {len(devices)} devices from cache")
 
-                # Build full device choices list
-                device_choices = [(d["id"], d["name"]) for d in devices]
+                zone_props = zone_schema.get("properties", {})
+                for field_name, field_schema in zone_props.items():
+                    if not field_schema.get("x-drop-down"):
+                        continue
+                    if not hasattr(zone_form, field_name):
+                        continue
+                    field_obj = getattr(zone_form, field_name)
+                    if not hasattr(field_obj, 'choices'):
+                        continue
 
-                # Update fan_dev_id if it exists as a field (integer field, not multi-select)
-                # Fan device is a single select - handled via variable dropdown pattern
+                    # Filter devices by class if specified
+                    allowed_classes = field_schema.get("x-include-device-classes", "")
+                    filtered = _filter_devices_by_class(devices, allowed_classes)
+                    choices = [(d["id"], d["name"]) for d in filtered]
 
-                # Update multi-select device fields at top level
-                device_multi_fields = ['temp_sensor_dev_ids', 'presence_dev_ids']
-                for field_name in device_multi_fields:
-                    if hasattr(zone_form, field_name):
-                        field_obj = getattr(zone_form, field_name)
-                        if hasattr(field_obj, 'choices'):
-                            field_obj.choices = device_choices
-                            logger.debug(f"[Zone Edit] Updated {field_name} with {len(device_choices)} choices")
+                    # Single-select device fields get a "None Selected" sentinel (-1).
+                    # _post_zone_save() converts -1 back to None on submission.
+                    if field_name.endswith("_dev_id"):
+                        choices = [(-1, "None Selected")] + choices
+
+                    field_obj.choices = choices
+                    logger.debug(f"[Zone Edit] Updated {field_name} with {len(choices)} choices")
 
             except Exception as e:
                 logger.exception(f"[Zone Edit] Could not update device choices: {e}")
