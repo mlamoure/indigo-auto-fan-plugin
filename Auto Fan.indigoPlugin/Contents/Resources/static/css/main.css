@@ -347,3 +347,129 @@ table.zones-table th {
 .reorder-buttons button:hover {
   background-color: #e0e0e0;
 }
+
+/* Season tabs for fan curve editor */
+.season-tabs {
+    display: flex;
+    gap: 0;
+    margin-bottom: 12px;
+    border-bottom: 2px solid #ddd;
+}
+
+.season-tab {
+    padding: 8px 20px;
+    border: 1px solid #ccc;
+    border-bottom: none;
+    border-radius: 6px 6px 0 0;
+    background: #f0f0f0;
+    color: #555;
+    cursor: pointer;
+    font-size: 0.9em;
+    font-weight: bold;
+    margin-bottom: -2px;
+    transition: background 0.15s, color 0.15s;
+}
+
+.season-tab:hover {
+    background: #e0e0e0;
+}
+
+.season-tab.active {
+    background: #fff;
+    color: #007BFF;
+    border-bottom: 2px solid #fff;
+}
+
+/* Fan Curve Editor */
+.fan-curve-controls {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    margin-bottom: 15px;
+}
+
+.fan-curve-sliders {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 20px;
+}
+
+.fan-curve-control {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.fan-curve-control input[type="range"] {
+    width: 160px;
+}
+
+.fan-curve-helper {
+    font-size: 0.8em;
+    color: #888;
+    font-style: italic;
+}
+
+.fan-curve-presets {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+    align-items: center;
+}
+
+.fan-curve-presets-label {
+    font-weight: bold;
+    font-size: 0.9em;
+    color: #555;
+    margin-right: 4px;
+}
+
+.btn-small {
+    padding: 4px 10px;
+    font-size: 0.85em;
+}
+
+.btn-small.active {
+    background-color: #0056b3;
+    outline: 2px solid #004094;
+}
+
+#fan-curve-chart-container {
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    background: #fff;
+    padding: 5px;
+    margin-bottom: 15px;
+    display: inline-block;
+}
+
+#fan-curve-svg {
+    display: block;
+    user-select: none;
+    -webkit-user-select: none;
+}
+
+.fan-curve-summary-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(80px, 1fr));
+    gap: 8px;
+    margin-top: 10px;
+}
+
+.fan-curve-summary-card {
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    padding: 6px;
+    text-align: center;
+    background: #fafafa;
+    font-size: 0.85em;
+}
+
+.fan-curve-summary-card .offset {
+    font-weight: bold;
+    color: #333;
+}
+
+.fan-curve-summary-card .speed {
+    color: #007BFF;
+}

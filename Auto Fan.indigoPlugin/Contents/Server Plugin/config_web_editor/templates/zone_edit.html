@@ -26,7 +26,7 @@
             <input type="hidden" name="indigo_dev_id" value="{{ zone_form.indigo_dev_id.data or '' }}">
             {% endif %}
 
-            {% for field in zone_form if field.name not in ['submit', 'csrf_token', 'speed_curves', 'modifiers', 'global_behavior_variables_map', 'enabled', 'indigo_dev_id', 'zone_index', 'ideal_temp_value', 'ideal_temp_var_id', 'ideal_temp_source'] %}
+            {% for field in zone_form if field.name not in ['submit', 'csrf_token', 'fan_curve', 'seasonal_curves', 'speed_curves', 'modifiers', 'global_behavior_variables_map', 'enabled', 'indigo_dev_id', 'zone_index', 'ideal_temp_value', 'ideal_temp_var_id', 'ideal_temp_source'] %}
             {{ render_field(field) }}
             {% endfor %}
 
@@ -49,74 +49,46 @@
             </fieldset>
             {% endif %}
 
-            {# Speed Curves Section #}
-            {% if zone_form.speed_curves is defined %}
+            {# Fan Curve Editor Section #}
             <fieldset class="group-box">
-                <legend>Speed Curves</legend>
+                <legend>Fan Speed Curve</legend>
+                <input type="hidden" name="seasonal_curves_json" id="seasonal-curves-json">
 
-                {# Cooling Curve Breakpoints #}
-                {% if zone_form.speed_curves.form.cooling_curve is defined %}
-                <fieldset class="group-box">
-                    <legend>Cooling Curve</legend>
-                    <p style="font-style:italic; margin-bottom:10px;">
-                        Define temperature delta vs fan speed breakpoints. Speed is linearly interpolated between breakpoints.
-                        Delta = current temp - ideal temp (positive means warmer than desired).
-                    </p>
-                    <table id="cooling-breakpoints-table" class="zones-table" style="width:auto;">
-                        <thead>
-                            <tr>
-                                <th style="padding:4px 8px;">Temp Delta (&deg;F)</th>
-                                <th style="padding:4px 8px;">Fan Speed (%)</th>
-                                <th style="padding:4px 8px;">Action</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {% set cooling_bp = zone.get('speed_curves', {}).get('cooling_curve', {}).get('breakpoints', [{"delta": 0, "speed_pct": 0}, {"delta": 3, "speed_pct": 50}, {"delta": 6, "speed_pct": 85}, {"delta": 8, "speed_pct": 100}]) %}
-                            {% for bp in cooling_bp %}
-                            <tr>
-                                <td style="padding:4px 8px;"><input type="number" step="0.5" name="cooling_breakpoint_delta_{{ loop.index0 }}" value="{{ bp.delta }}" style="width:80px;"></td>
-                                <td style="padding:4px 8px;"><input type="number" step="1" min="0" max="100" name="cooling_breakpoint_speed_{{ loop.index0 }}" value="{{ bp.speed_pct }}" style="width:80px;"></td>
-                                <td style="padding:4px 8px;"><button type="button" class="btn remove-cooling-bp">Remove</button></td>
-                            </tr>
-                            {% endfor %}
-                        </tbody>
-                    </table>
-                    <button type="button" class="btn" id="add-cooling-bp">Add Breakpoint</button>
-                </fieldset>
-                {% endif %}
+                <div class="season-tabs">
+                    <button type="button" class="season-tab" data-season="spring">Spring</button>
+                    <button type="button" class="season-tab" data-season="summer">Summer</button>
+                    <button type="button" class="season-tab" data-season="fall">Fall</button>
+                    <button type="button" class="season-tab" data-season="winter">Winter</button>
+                </div>
 
-                {# Warming Curve Breakpoints #}
-                {% if zone_form.speed_curves.form.warming_curve is defined %}
-                <fieldset class="group-box">
-                    <legend>Warming Curve</legend>
-                    <p style="font-style:italic; margin-bottom:10px;">
-                        Define breakpoints for when the room is cooler than desired (negative delta).
-                        Useful for circulating warm air during heating.
-                    </p>
-                    <table id="warming-breakpoints-table" class="zones-table" style="width:auto;">
-                        <thead>
-                            <tr>
-                                <th style="padding:4px 8px;">Temp Delta (&deg;F)</th>
-                                <th style="padding:4px 8px;">Fan Speed (%)</th>
-                                <th style="padding:4px 8px;">Action</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {% set warming_bp = zone.get('speed_curves', {}).get('warming_curve', {}).get('breakpoints', [{"delta": 0, "speed_pct": 0}, {"delta": -2, "speed_pct": 10}]) %}
-                            {% for bp in warming_bp %}
-                            <tr>
-                                <td style="padding:4px 8px;"><input type="number" step="0.5" name="warming_breakpoint_delta_{{ loop.index0 }}" value="{{ bp.delta }}" style="width:80px;"></td>
-                                <td style="padding:4px 8px;"><input type="number" step="1" min="0" max="100" name="warming_breakpoint_speed_{{ loop.index0 }}" value="{{ bp.speed_pct }}" style="width:80px;"></td>
-                                <td style="padding:4px 8px;"><button type="button" class="btn remove-warming-bp">Remove</button></td>
-                            </tr>
-                            {% endfor %}
-                        </tbody>
-                    </table>
-                    <button type="button" class="btn" id="add-warming-bp">Add Breakpoint</button>
-                </fieldset>
-                {% endif %}
+                <div class="fan-curve-controls">
+                    <div class="fan-curve-sliders">
+                        <div class="fan-curve-control">
+                            <label>Temperature Range: &plusmn;<span id="range-display">3</span>&deg;</label>
+                            <input type="range" id="temp-range-slider" min="1" max="5" value="3" step="1">
+                            <span class="fan-curve-helper">How far from target to extend the curve</span>
+                        </div>
+                        <div class="fan-curve-control">
+                            <label>Control Points: <span id="points-display">7</span></label>
+                            <input type="range" id="num-points-slider" min="3" max="11" value="7" step="2">
+                            <span class="fan-curve-helper">More points = finer control</span>
+                        </div>
+                    </div>
+                    <div class="fan-curve-presets">
+                        <span class="fan-curve-presets-label">Presets:</span>
+                        <button type="button" class="btn btn-small preset-btn" data-preset="linear">Linear Ramp</button>
+                        <button type="button" class="btn btn-small preset-btn" data-preset="aggressive">Aggressive Cooling</button>
+                        <button type="button" class="btn btn-small preset-btn" data-preset="gentle">Gentle Curve</button>
+                        <button type="button" class="btn btn-small preset-btn" data-preset="off-until-hot">Off Until Hot</button>
+                    </div>
+                </div>
+
+                <div id="fan-curve-chart-container">
+                    <svg id="fan-curve-svg" width="620" height="360" xmlns="http://www.w3.org/2000/svg"></svg>
+                </div>
+
+                <div id="fan-curve-summary" class="fan-curve-summary-grid"></div>
             </fieldset>
-            {% endif %}
 
             {# Modifiers Section #}
             {% if zone_form.modifiers is defined %}
@@ -188,7 +160,6 @@
           var zoneForm = document.getElementById('zone-config-form');
           if (zoneForm) {
             zoneForm.addEventListener('submit', function() {
-              // Select all options in all multiple select boxes
               document.querySelectorAll('select[multiple]').forEach(function(select) {
                 if (select.id.endsWith('_selected')) {
                   for (var i = 0; i < select.options.length; i++) {
@@ -196,93 +167,492 @@
                   }
                 }
               });
-
-              // Collect breakpoint data into hidden fields before submission
-              collectBreakpoints('cooling');
-              collectBreakpoints('warming');
+              serializeFanCurve();
             });
           }
         });
 
-        function collectBreakpoints(curveType) {
-            var table = document.getElementById(curveType + '-breakpoints-table');
-            if (!table) return;
-
-            var rows = table.querySelectorAll('tbody tr');
-            var breakpoints = [];
-
-            rows.forEach(function(row) {
-                var deltaInput = row.querySelector('input[name^="' + curveType + '_breakpoint_delta_"]');
-                var speedInput = row.querySelector('input[name^="' + curveType + '_breakpoint_speed_"]');
-                if (deltaInput && speedInput) {
-                    breakpoints.push({
-                        delta: parseFloat(deltaInput.value) || 0,
-                        speed_pct: parseFloat(speedInput.value) || 0
-                    });
+        function serializeFanCurve() {
+            // Save active season state back before serializing
+            if (window._seasonalState && window._activeSeason && window._fanCurveState) {
+                window._seasonalState[window._activeSeason] = {
+                    temperatureRange: window._fanCurveState.temperatureRange,
+                    numPoints: window._fanCurveState.numPoints,
+                    points: window._fanCurveState.points.slice(),
+                    activePreset: window._fanCurveState.activePreset
+                };
+            }
+            var el = document.getElementById('seasonal-curves-json');
+            if (el && window._seasonalState) {
+                var output = {};
+                var seasons = ['spring', 'summer', 'fall', 'winter'];
+                for (var i = 0; i < seasons.length; i++) {
+                    var s = seasons[i];
+                    var st = window._seasonalState[s];
+                    output[s] = {
+                        temperature_range: st.temperatureRange,
+                        num_points: st.numPoints,
+                        points: st.points
+                    };
                 }
-            });
-
-            // Store as hidden JSON field
-            var existingHidden = document.querySelector('input[name="' + curveType + '_breakpoints_json"]');
-            if (existingHidden) {
-                existingHidden.value = JSON.stringify(breakpoints);
-            } else {
-                var hidden = document.createElement('input');
-                hidden.type = 'hidden';
-                hidden.name = curveType + '_breakpoints_json';
-                hidden.value = JSON.stringify(breakpoints);
-                document.getElementById('zone-config-form').appendChild(hidden);
+                el.value = JSON.stringify(output);
             }
         }
         </script>
 
         <script>
-        // Add/Remove breakpoint rows for cooling curve
-        document.addEventListener('DOMContentLoaded', function() {
-            var coolingTable = document.getElementById('cooling-breakpoints-table');
-            if (coolingTable) {
-                document.getElementById('add-cooling-bp').addEventListener('click', function() {
-                    var tbody = coolingTable.querySelector('tbody');
-                    var rowCount = tbody.rows.length;
-                    var row = document.createElement('tr');
-                    row.innerHTML =
-                        '<td style="padding:4px 8px;"><input type="number" step="0.5" name="cooling_breakpoint_delta_' + rowCount + '" value="0" style="width:80px;"></td>' +
-                        '<td style="padding:4px 8px;"><input type="number" step="1" min="0" max="100" name="cooling_breakpoint_speed_' + rowCount + '" value="0" style="width:80px;"></td>' +
-                        '<td style="padding:4px 8px;"><button type="button" class="btn remove-cooling-bp">Remove</button></td>';
-                    tbody.appendChild(row);
-                    attachRemoveHandler(row.querySelector('.remove-cooling-bp'));
-                });
+        // Fan Curve Editor
+        (function() {
+            var defaults = {
+                temperature_range: 3,
+                num_points: 7,
+                points: [
+                    {offset: -3, speed: 0}, {offset: -2, speed: 10}, {offset: -1, speed: 20},
+                    {offset: 0, speed: 30}, {offset: 1, speed: 55}, {offset: 2, speed: 80},
+                    {offset: 3, speed: 100}
+                ]
+            };
 
-                coolingTable.querySelectorAll('.remove-cooling-bp').forEach(function(btn) {
-                    attachRemoveHandler(btn);
+            var savedSeasonal = {{ zone.get('seasonal_curves', {}) | tojson }};
+            var seasonKeys = ['spring', 'summer', 'fall', 'winter'];
+
+            // Determine current season from month
+            var month = new Date().getMonth() + 1;
+            var currentSeason;
+            if (month >= 3 && month <= 5) currentSeason = 'spring';
+            else if (month >= 6 && month <= 8) currentSeason = 'summer';
+            else if (month >= 9 && month <= 11) currentSeason = 'fall';
+            else currentSeason = 'winter';
+
+            var seasonalState = {};
+            for (var i = 0; i < seasonKeys.length; i++) {
+                var key = seasonKeys[i];
+                var saved = savedSeasonal[key];
+                var init = (saved && saved.points && saved.points.length > 0) ? saved : defaults;
+                seasonalState[key] = {
+                    temperatureRange: init.temperature_range || 3,
+                    numPoints: init.num_points || init.points.length,
+                    points: init.points.slice(),
+                    activePreset: null
+                };
+            }
+
+            window._seasonalState = seasonalState;
+            window._activeSeason = currentSeason;
+
+            var state = seasonalState[currentSeason];
+            window._fanCurveState = state;
+
+            // Chart dimensions
+            var W = 620, H = 360;
+            var margin = {top: 30, right: 30, bottom: 45, left: 55};
+            var plotW = W - margin.left - margin.right;
+            var plotH = H - margin.top - margin.bottom;
+
+            function xScale(offset) {
+                return margin.left + ((offset + state.temperatureRange) / (2 * state.temperatureRange)) * plotW;
+            }
+            function yScale(speed) {
+                return margin.top + (1 - speed / 100) * plotH;
+            }
+            function yInverse(py) {
+                return Math.round(Math.max(0, Math.min(100, (1 - (py - margin.top) / plotH) * 100)));
+            }
+
+            function computeOffsets(range, numPts) {
+                var pts = [];
+                for (var i = 0; i < numPts; i++) {
+                    var offset = -range + (2 * range * i) / (numPts - 1);
+                    pts.push(Math.round(offset * 100) / 100);
+                }
+                return pts;
+            }
+
+            function lerpSpeeds(oldPoints, newOffsets) {
+                if (!oldPoints || oldPoints.length === 0) return newOffsets.map(function() { return 0; });
+                var speeds = [];
+                for (var i = 0; i < newOffsets.length; i++) {
+                    var o = newOffsets[i];
+                    if (o <= oldPoints[0].offset) {
+                        speeds.push(oldPoints[0].speed);
+                    } else if (o >= oldPoints[oldPoints.length - 1].offset) {
+                        speeds.push(oldPoints[oldPoints.length - 1].speed);
+                    } else {
+                        for (var j = 0; j < oldPoints.length - 1; j++) {
+                            if (oldPoints[j].offset <= o && o <= oldPoints[j + 1].offset) {
+                                var span = oldPoints[j + 1].offset - oldPoints[j].offset;
+                                var t = span === 0 ? 0 : (o - oldPoints[j].offset) / span;
+                                speeds.push(Math.round(oldPoints[j].speed + t * (oldPoints[j + 1].speed - oldPoints[j].speed)));
+                                break;
+                            }
+                        }
+                    }
+                }
+                return speeds;
+            }
+
+            function rebuildPoints(range, numPts, oldPoints) {
+                var offsets = computeOffsets(range, numPts);
+                var speeds = lerpSpeeds(oldPoints, offsets);
+                var pts = [];
+                for (var i = 0; i < offsets.length; i++) {
+                    pts.push({offset: offsets[i], speed: speeds[i]});
+                }
+                return pts;
+            }
+
+            function applyPreset(name) {
+                var n = state.points.length;
+                for (var i = 0; i < n; i++) {
+                    var t = i / (n - 1);
+                    var s = 0;
+                    if (name === 'linear') {
+                        s = t * 100;
+                    } else if (name === 'aggressive') {
+                        s = Math.sqrt(t) * 100;
+                    } else if (name === 'gentle') {
+                        s = 20 + t * t * 80;
+                    } else if (name === 'off-until-hot') {
+                        s = t < 0.6 ? 0 : ((t - 0.6) / 0.4) * 100;
+                    }
+                    state.points[i].speed = Math.round(s);
+                }
+                state.activePreset = name;
+                render();
+            }
+
+            function fmtOffset(v) {
+                var s = v.toFixed(1);
+                return (v > 0 ? '+' : '') + s + '\u00B0';
+            }
+
+            function createSVGEl(tag) {
+                return document.createElementNS('http://www.w3.org/2000/svg', tag);
+            }
+
+            function render() {
+                var svg = document.getElementById('fan-curve-svg');
+                svg.innerHTML = '';
+                svg.setAttribute('width', W);
+                svg.setAttribute('height', H);
+
+                // Background
+                var bg = createSVGEl('rect');
+                bg.setAttribute('x', margin.left);
+                bg.setAttribute('y', margin.top);
+                bg.setAttribute('width', plotW);
+                bg.setAttribute('height', plotH);
+                bg.setAttribute('fill', '#fafafa');
+                bg.setAttribute('stroke', '#ddd');
+                svg.appendChild(bg);
+
+                // Horizontal grid lines and Y labels
+                for (var pct = 0; pct <= 100; pct += 25) {
+                    var y = yScale(pct);
+                    var line = createSVGEl('line');
+                    line.setAttribute('x1', margin.left);
+                    line.setAttribute('x2', W - margin.right);
+                    line.setAttribute('y1', y);
+                    line.setAttribute('y2', y);
+                    line.setAttribute('stroke', '#e0e0e0');
+                    line.setAttribute('stroke-width', '1');
+                    svg.appendChild(line);
+
+                    var label = createSVGEl('text');
+                    label.setAttribute('x', margin.left - 8);
+                    label.setAttribute('y', y + 4);
+                    label.setAttribute('text-anchor', 'end');
+                    label.setAttribute('font-size', '11');
+                    label.setAttribute('fill', '#666');
+                    label.textContent = pct + '%';
+                    svg.appendChild(label);
+                }
+
+                // Vertical grid lines and X labels
+                var range = state.temperatureRange;
+                for (var d = -range; d <= range; d++) {
+                    var x = xScale(d);
+                    var vline = createSVGEl('line');
+                    vline.setAttribute('x1', x);
+                    vline.setAttribute('x2', x);
+                    vline.setAttribute('y1', margin.top);
+                    vline.setAttribute('y2', H - margin.bottom);
+                    if (d === 0) {
+                        vline.setAttribute('stroke', '#999');
+                        vline.setAttribute('stroke-width', '2');
+                        vline.setAttribute('stroke-dasharray', '6,3');
+                    } else {
+                        vline.setAttribute('stroke', '#e0e0e0');
+                        vline.setAttribute('stroke-width', '1');
+                    }
+                    svg.appendChild(vline);
+
+                    var xLabel = createSVGEl('text');
+                    xLabel.setAttribute('x', x);
+                    xLabel.setAttribute('y', H - margin.bottom + 18);
+                    xLabel.setAttribute('text-anchor', 'middle');
+                    xLabel.setAttribute('font-size', '11');
+                    xLabel.setAttribute('fill', '#666');
+                    xLabel.textContent = fmtOffset(d);
+                    svg.appendChild(xLabel);
+                }
+
+                // Zone labels
+                var zoneLabelY = margin.top - 8;
+                var lblBelow = createSVGEl('text');
+                lblBelow.setAttribute('x', xScale(-range / 2));
+                lblBelow.setAttribute('y', zoneLabelY);
+                lblBelow.setAttribute('text-anchor', 'middle');
+                lblBelow.setAttribute('font-size', '11');
+                lblBelow.setAttribute('fill', '#4a90d9');
+                lblBelow.textContent = 'Below target';
+                svg.appendChild(lblBelow);
+
+                var lblTarget = createSVGEl('text');
+                lblTarget.setAttribute('x', xScale(0));
+                lblTarget.setAttribute('y', zoneLabelY);
+                lblTarget.setAttribute('text-anchor', 'middle');
+                lblTarget.setAttribute('font-size', '11');
+                lblTarget.setAttribute('font-weight', 'bold');
+                lblTarget.setAttribute('fill', '#333');
+                lblTarget.textContent = 'Target';
+                svg.appendChild(lblTarget);
+
+                var lblAbove = createSVGEl('text');
+                lblAbove.setAttribute('x', xScale(range / 2));
+                lblAbove.setAttribute('y', zoneLabelY);
+                lblAbove.setAttribute('text-anchor', 'middle');
+                lblAbove.setAttribute('font-size', '11');
+                lblAbove.setAttribute('fill', '#d94a4a');
+                lblAbove.textContent = 'Above target';
+                svg.appendChild(lblAbove);
+
+                // Axis labels
+                var xAxisLabel = createSVGEl('text');
+                xAxisLabel.setAttribute('x', margin.left + plotW / 2);
+                xAxisLabel.setAttribute('y', H - 4);
+                xAxisLabel.setAttribute('text-anchor', 'middle');
+                xAxisLabel.setAttribute('font-size', '12');
+                xAxisLabel.setAttribute('fill', '#555');
+                xAxisLabel.textContent = 'Temperature offset from target';
+                svg.appendChild(xAxisLabel);
+
+                // Area fill
+                var pts = state.points;
+                if (pts.length > 0) {
+                    var areaPath = 'M ' + xScale(pts[0].offset) + ' ' + yScale(0);
+                    for (var i = 0; i < pts.length; i++) {
+                        areaPath += ' L ' + xScale(pts[i].offset) + ' ' + yScale(pts[i].speed);
+                    }
+                    areaPath += ' L ' + xScale(pts[pts.length - 1].offset) + ' ' + yScale(0) + ' Z';
+                    var area = createSVGEl('path');
+                    area.setAttribute('d', areaPath);
+                    area.setAttribute('fill', 'rgba(0, 123, 255, 0.1)');
+                    svg.appendChild(area);
+
+                    // Curve line
+                    var linePath = 'M ' + xScale(pts[0].offset) + ' ' + yScale(pts[0].speed);
+                    for (var i = 1; i < pts.length; i++) {
+                        linePath += ' L ' + xScale(pts[i].offset) + ' ' + yScale(pts[i].speed);
+                    }
+                    var curveLine = createSVGEl('path');
+                    curveLine.setAttribute('d', linePath);
+                    curveLine.setAttribute('fill', 'none');
+                    curveLine.setAttribute('stroke', '#007BFF');
+                    curveLine.setAttribute('stroke-width', '2.5');
+                    curveLine.setAttribute('stroke-linejoin', 'round');
+                    svg.appendChild(curveLine);
+
+                    // Control points
+                    for (var i = 0; i < pts.length; i++) {
+                        (function(idx) {
+                            var cx = xScale(pts[idx].offset);
+                            var cy = yScale(pts[idx].speed);
+
+                            // Speed label
+                            var labelY = cy - 14;
+                            if (labelY < margin.top + 4) labelY = cy + 20;
+                            // Alternate label position for close points
+                            if (idx > 0 && idx % 2 === 1 && pts.length > 5) {
+                                if (cy - 14 >= margin.top + 4) labelY = cy - 14;
+                                else labelY = cy + 20;
+                            }
+                            var lbl = createSVGEl('text');
+                            lbl.setAttribute('x', cx);
+                            lbl.setAttribute('y', labelY);
+                            lbl.setAttribute('text-anchor', 'middle');
+                            lbl.setAttribute('font-size', '11');
+                            lbl.setAttribute('font-weight', 'bold');
+                            lbl.setAttribute('fill', '#007BFF');
+                            lbl.textContent = pts[idx].speed + '%';
+                            svg.appendChild(lbl);
+
+                            // Hit area (larger invisible circle for easier dragging)
+                            var hitArea = createSVGEl('circle');
+                            hitArea.setAttribute('cx', cx);
+                            hitArea.setAttribute('cy', cy);
+                            hitArea.setAttribute('r', '14');
+                            hitArea.setAttribute('fill', 'transparent');
+                            hitArea.setAttribute('cursor', 'ns-resize');
+                            svg.appendChild(hitArea);
+
+                            // Visible circle
+                            var circle = createSVGEl('circle');
+                            circle.setAttribute('cx', cx);
+                            circle.setAttribute('cy', cy);
+                            circle.setAttribute('r', '7');
+                            circle.setAttribute('fill', '#fff');
+                            circle.setAttribute('stroke', '#007BFF');
+                            circle.setAttribute('stroke-width', '2.5');
+                            circle.setAttribute('cursor', 'ns-resize');
+                            svg.appendChild(circle);
+
+                            function startDrag(e) {
+                                e.preventDefault();
+                                function onMove(ev) {
+                                    var svgRect = svg.getBoundingClientRect();
+                                    var clientY = ev.clientY !== undefined ? ev.clientY : ev.touches[0].clientY;
+                                    var py = clientY - svgRect.top;
+                                    var newSpeed = yInverse(py);
+                                    state.points[idx].speed = newSpeed;
+                                    state.activePreset = null;
+                                    render();
+                                }
+                                function onEnd() {
+                                    document.removeEventListener('mousemove', onMove);
+                                    document.removeEventListener('mouseup', onEnd);
+                                    document.removeEventListener('touchmove', onMove);
+                                    document.removeEventListener('touchend', onEnd);
+                                    serializeFanCurve();
+                                }
+                                document.addEventListener('mousemove', onMove);
+                                document.addEventListener('mouseup', onEnd);
+                                document.addEventListener('touchmove', onMove, {passive: false});
+                                document.addEventListener('touchend', onEnd);
+                            }
+                            hitArea.addEventListener('mousedown', startDrag);
+                            hitArea.addEventListener('touchstart', startDrag, {passive: false});
+                            circle.addEventListener('mousedown', startDrag);
+                            circle.addEventListener('touchstart', startDrag, {passive: false});
+                        })(i);
+                    }
+                }
+
+                // Update summary cards
+                renderSummary();
+                // Update preset button highlights
+                updatePresetButtons();
+                // Sync hidden field
+                serializeFanCurve();
+            }
+
+            function renderSummary() {
+                var container = document.getElementById('fan-curve-summary');
+                container.innerHTML = '';
+                for (var i = 0; i < state.points.length; i++) {
+                    var card = document.createElement('div');
+                    card.className = 'fan-curve-summary-card';
+                    var oDiv = document.createElement('div');
+                    oDiv.className = 'offset';
+                    oDiv.textContent = fmtOffset(state.points[i].offset);
+                    var sDiv = document.createElement('div');
+                    sDiv.className = 'speed';
+                    sDiv.textContent = state.points[i].speed + '%';
+                    card.appendChild(oDiv);
+                    card.appendChild(sDiv);
+                    container.appendChild(card);
+                }
+            }
+
+            function updatePresetButtons() {
+                document.querySelectorAll('.preset-btn').forEach(function(btn) {
+                    if (btn.getAttribute('data-preset') === state.activePreset) {
+                        btn.classList.add('active');
+                    } else {
+                        btn.classList.remove('active');
+                    }
                 });
             }
 
-            var warmingTable = document.getElementById('warming-breakpoints-table');
-            if (warmingTable) {
-                document.getElementById('add-warming-bp').addEventListener('click', function() {
-                    var tbody = warmingTable.querySelector('tbody');
-                    var rowCount = tbody.rows.length;
-                    var row = document.createElement('tr');
-                    row.innerHTML =
-                        '<td style="padding:4px 8px;"><input type="number" step="0.5" name="warming_breakpoint_delta_' + rowCount + '" value="0" style="width:80px;"></td>' +
-                        '<td style="padding:4px 8px;"><input type="number" step="1" min="0" max="100" name="warming_breakpoint_speed_' + rowCount + '" value="0" style="width:80px;"></td>' +
-                        '<td style="padding:4px 8px;"><button type="button" class="btn remove-warming-bp">Remove</button></td>';
-                    tbody.appendChild(row);
-                    attachRemoveHandler(row.querySelector('.remove-warming-bp'));
+            // Slider handlers
+            document.addEventListener('DOMContentLoaded', function() {
+                var rangeSlider = document.getElementById('temp-range-slider');
+                var pointsSlider = document.getElementById('num-points-slider');
+                var rangeDisplay = document.getElementById('range-display');
+                var pointsDisplay = document.getElementById('points-display');
+
+                rangeSlider.value = state.temperatureRange;
+                pointsSlider.value = state.numPoints;
+                rangeDisplay.textContent = state.temperatureRange;
+                pointsDisplay.textContent = state.numPoints;
+
+                rangeSlider.addEventListener('input', function() {
+                    var newRange = parseInt(this.value);
+                    rangeDisplay.textContent = newRange;
+                    state.points = rebuildPoints(newRange, state.numPoints, state.points);
+                    state.temperatureRange = newRange;
+                    state.activePreset = null;
+                    render();
                 });
 
-                warmingTable.querySelectorAll('.remove-warming-bp').forEach(function(btn) {
-                    attachRemoveHandler(btn);
+                pointsSlider.addEventListener('input', function() {
+                    var newCount = parseInt(this.value);
+                    pointsDisplay.textContent = newCount;
+                    state.points = rebuildPoints(state.temperatureRange, newCount, state.points);
+                    state.numPoints = newCount;
+                    state.activePreset = null;
+                    render();
                 });
-            }
 
-            function attachRemoveHandler(btn) {
-                btn.addEventListener('click', function() {
-                    this.closest('tr').remove();
+                document.querySelectorAll('.preset-btn').forEach(function(btn) {
+                    btn.addEventListener('click', function() {
+                        applyPreset(this.getAttribute('data-preset'));
+                    });
                 });
-            }
-        });
+
+                // Season tab switching
+                function switchSeason(newSeason) {
+                    // Save current state back
+                    seasonalState[window._activeSeason] = {
+                        temperatureRange: state.temperatureRange,
+                        numPoints: state.numPoints,
+                        points: state.points.slice(),
+                        activePreset: state.activePreset
+                    };
+
+                    // Switch to new season
+                    window._activeSeason = newSeason;
+                    state = seasonalState[newSeason];
+                    window._fanCurveState = state;
+
+                    // Update sliders
+                    rangeSlider.value = state.temperatureRange;
+                    pointsSlider.value = state.numPoints;
+                    rangeDisplay.textContent = state.temperatureRange;
+                    pointsDisplay.textContent = state.numPoints;
+
+                    // Update tab highlights
+                    document.querySelectorAll('.season-tab').forEach(function(btn) {
+                        btn.classList.toggle('active', btn.getAttribute('data-season') === newSeason);
+                    });
+
+                    render();
+                }
+
+                document.querySelectorAll('.season-tab').forEach(function(btn) {
+                    btn.addEventListener('click', function() {
+                        switchSeason(this.getAttribute('data-season'));
+                    });
+                });
+
+                // Highlight initial active tab
+                document.querySelectorAll('.season-tab').forEach(function(btn) {
+                    btn.classList.toggle('active', btn.getAttribute('data-season') === currentSeason);
+                });
+
+                render();
+            });
+        })();
         </script>
 
         <div id="create-var-overlay"

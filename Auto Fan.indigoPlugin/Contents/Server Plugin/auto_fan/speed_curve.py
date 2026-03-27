@@ -2,62 +2,55 @@ from datetime import time, datetime
 from typing import List, Optional, Tuple
 
 
-def interpolate(delta: float, breakpoints: List[dict]) -> float:
+def interpolate(value: float, points: List[dict]) -> float:
     """
-    Linear interpolation between breakpoints.
+    Linear interpolation between control points.
 
     Args:
-        delta: Temperature delta (current - ideal). Positive = room warmer than ideal.
-        breakpoints: Sorted list of {"delta": float, "speed_pct": float}.
+        value: The input value (temperature offset from target).
+        points: List of {"offset": float, "speed": float}.
 
     Returns:
         Interpolated speed percentage (0-100).
     """
-    if not breakpoints:
+    if not points:
         return 0.0
 
-    pts = sorted(breakpoints, key=lambda bp: bp["delta"])
+    pts = sorted(points, key=lambda p: p["offset"])
 
-    # Clamp below lowest breakpoint
-    if delta <= pts[0]["delta"]:
-        return pts[0]["speed_pct"]
+    # Clamp below lowest point
+    if value <= pts[0]["offset"]:
+        return pts[0]["speed"]
 
-    # Clamp above highest breakpoint
-    if delta >= pts[-1]["delta"]:
-        return pts[-1]["speed_pct"]
+    # Clamp above highest point
+    if value >= pts[-1]["offset"]:
+        return pts[-1]["speed"]
 
     # Find bracket and interpolate
     for i in range(len(pts) - 1):
-        if pts[i]["delta"] <= delta <= pts[i + 1]["delta"]:
-            span = pts[i + 1]["delta"] - pts[i]["delta"]
+        if pts[i]["offset"] <= value <= pts[i + 1]["offset"]:
+            span = pts[i + 1]["offset"] - pts[i]["offset"]
             if span == 0:
-                return pts[i]["speed_pct"]
-            t = (delta - pts[i]["delta"]) / span
-            return pts[i]["speed_pct"] + t * (pts[i + 1]["speed_pct"] - pts[i]["speed_pct"])
+                return pts[i]["speed"]
+            t = (value - pts[i]["offset"]) / span
+            return pts[i]["speed"] + t * (pts[i + 1]["speed"] - pts[i]["speed"])
 
     return 0.0
 
 
-def calculate_base_speed(delta: float, cooling_curve: dict, warming_curve: dict) -> Tuple[float, str]:
+def calculate_base_speed(delta: float, fan_curve: dict) -> float:
     """
-    Select the appropriate curve based on delta sign and interpolate.
+    Interpolate base fan speed from the unified fan curve.
 
     Args:
-        delta: Temperature delta (current - ideal).
-        cooling_curve: {"breakpoints": [...]} for delta >= 0.
-        warming_curve: {"breakpoints": [...]} for delta < 0.
+        delta: Temperature delta (current - ideal). Positive = warmer than target.
+        fan_curve: {"points": [...]} with offset/speed pairs.
 
     Returns:
-        Tuple of (speed_pct, curve_name_used).
+        Interpolated speed percentage (0-100).
     """
-    if delta >= 0:
-        breakpoints = cooling_curve.get("breakpoints", [])
-        speed = interpolate(delta, breakpoints)
-        return speed, "cooling"
-    else:
-        breakpoints = warming_curve.get("breakpoints", [])
-        speed = interpolate(delta, breakpoints)
-        return speed, "warming"
+    points = fan_curve.get("points", [])
+    return interpolate(delta, points)
 
 
 def _is_nighttime(start_hour: int, end_hour: int) -> bool:

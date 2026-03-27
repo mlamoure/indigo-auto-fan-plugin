@@ -88,7 +88,7 @@ class TestAutoFanConfig:
         assert config.zones[1].zone_index == 1
         assert config.zones[2].zone_index == 2
 
-    def test_default_speed_curves(self, fake_indigo):
+    def test_default_fan_curve(self, fake_indigo):
         """Zones without explicit curves should use defaults."""
         config = self._make_config({
             "plugin_config": {
@@ -102,9 +102,9 @@ class TestAutoFanConfig:
             ],
         })
         zone = config.zones[0]
-        # Should have default cooling curve breakpoints
-        cooling = zone.speed_curves.get("cooling_curve", {}).get("breakpoints", [])
-        assert len(cooling) > 0
+        # Should have default fan curve points
+        points = zone.fan_curve.get("points", [])
+        assert len(points) > 0
 
     def test_weather_dev_id(self, fake_indigo):
         config = self._make_config({
@@ -174,3 +174,120 @@ class TestAutoFanConfig:
         # New fields should be preserved, old fields discarded
         assert zone.humidity_dev_ids == [401, 402]
         assert zone.ideal_temp_source == "thermostat"
+
+    def test_migrate_speed_curves_to_seasonal_curves(self, fake_indigo):
+        """Legacy speed_curves should be converted through chain to seasonal_curves."""
+        from auto_fan.auto_fan_config import AutoFanConfig
+        zone_d = {
+            "name": "Test",
+            "speed_curves": {
+                "cooling_curve": {"breakpoints": [
+                    {"delta": 0, "speed_pct": 0},
+                    {"delta": 5, "speed_pct": 100},
+                ]},
+                "warming_curve": {"breakpoints": [
+                    {"delta": 0, "speed_pct": 0},
+                    {"delta": -5, "speed_pct": 50},
+                ]},
+            },
+        }
+        AutoFanConfig._migrate_zone(zone_d)
+        assert "speed_curves" not in zone_d
+        assert "fan_curve" not in zone_d
+        assert "seasonal_curves" in zone_d
+        for season in ("spring", "summer", "fall", "winter"):
+            assert "points" in zone_d["seasonal_curves"][season]
+            assert zone_d["seasonal_curves"][season]["temperature_range"] >= 1
+            assert len(zone_d["seasonal_curves"][season]["points"]) == 7
+
+    def test_migrate_speed_curves_preserves_existing_fan_curve(self, fake_indigo):
+        """If fan_curve already exists, speed_curves should just be removed, then fan_curve migrates."""
+        from auto_fan.auto_fan_config import AutoFanConfig
+        fan_curve = {
+            "temperature_range": 3,
+            "num_points": 5,
+            "points": [
+                {"offset": -3, "speed": 0},
+                {"offset": -1.5, "speed": 15},
+                {"offset": 0, "speed": 30},
+                {"offset": 1.5, "speed": 65},
+                {"offset": 3, "speed": 100},
+            ],
+        }
+        zone_d = {
+            "name": "Test",
+            "speed_curves": {"cooling_curve": {"breakpoints": []}},
+            "fan_curve": fan_curve,
+        }
+        AutoFanConfig._migrate_zone(zone_d)
+        assert "speed_curves" not in zone_d
+        assert "fan_curve" not in zone_d
+        assert "seasonal_curves" in zone_d
+        for season in ("spring", "summer", "fall", "winter"):
+            assert zone_d["seasonal_curves"][season]["temperature_range"] == 3
+            assert len(zone_d["seasonal_curves"][season]["points"]) == 5
+
+    def test_migrate_empty_speed_curves(self, fake_indigo):
+        """Empty speed_curves should produce default seasonal_curves."""
+        from auto_fan.auto_fan_config import AutoFanConfig
+        zone_d = {
+            "name": "Test",
+            "speed_curves": {},
+        }
+        AutoFanConfig._migrate_zone(zone_d)
+        assert "speed_curves" not in zone_d
+        assert "fan_curve" not in zone_d
+        assert "seasonal_curves" in zone_d
+        for season in ("spring", "summer", "fall", "winter"):
+            assert len(zone_d["seasonal_curves"][season]["points"]) == 7
+
+    def test_migrate_fan_curve_to_seasonal_curves(self, fake_indigo):
+        """Single fan_curve should be replicated to all 4 seasons."""
+        from auto_fan.auto_fan_config import AutoFanConfig
+        fan_curve = {
+            "temperature_range": 3,
+            "num_points": 5,
+            "points": [
+                {"offset": -3, "speed": 0}, {"offset": -1.5, "speed": 15},
+                {"offset": 0, "speed": 30}, {"offset": 1.5, "speed": 65},
+                {"offset": 3, "speed": 100},
+            ],
+        }
+        zone_d = {"name": "Test", "fan_curve": fan_curve}
+        AutoFanConfig._migrate_zone(zone_d)
+        assert "fan_curve" not in zone_d
+        assert "seasonal_curves" in zone_d
+        for season in ("spring", "summer", "fall", "winter"):
+            assert season in zone_d["seasonal_curves"]
+            assert len(zone_d["seasonal_curves"][season]["points"]) == 5
+
+    def test_migrate_fan_curve_preserves_existing_seasonal_curves(self, fake_indigo):
+        """When seasonal_curves exists, fan_curve should just be removed."""
+        from auto_fan.auto_fan_config import AutoFanConfig
+        seasonal = {s: {"temperature_range": 3, "num_points": 7, "points": []}
+                    for s in ("spring", "summer", "fall", "winter")}
+        zone_d = {"name": "Test", "fan_curve": {"points": []}, "seasonal_curves": seasonal}
+        AutoFanConfig._migrate_zone(zone_d)
+        assert "fan_curve" not in zone_d
+        assert zone_d["seasonal_curves"] is seasonal
+
+    def test_full_migration_chain_speed_curves_to_seasonal(self, fake_indigo):
+        """speed_curves -> fan_curve -> seasonal_curves in one migration pass."""
+        from auto_fan.auto_fan_config import AutoFanConfig
+        zone_d = {
+            "name": "Test",
+            "speed_curves": {
+                "cooling_curve": {"breakpoints": [
+                    {"delta": 0, "speed_pct": 0}, {"delta": 5, "speed_pct": 100},
+                ]},
+                "warming_curve": {"breakpoints": [
+                    {"delta": 0, "speed_pct": 0}, {"delta": -5, "speed_pct": 50},
+                ]},
+            },
+        }
+        AutoFanConfig._migrate_zone(zone_d)
+        assert "speed_curves" not in zone_d
+        assert "fan_curve" not in zone_d
+        assert "seasonal_curves" in zone_d
+        for season in ("spring", "summer", "fall", "winter"):
+            assert len(zone_d["seasonal_curves"][season]["points"]) == 7

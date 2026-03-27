@@ -114,54 +114,14 @@
             "x-drop-down": true,
             "title": "Ideal Temperature Variable"
           },
-          "speed_curves": {
+          "seasonal_curves": {
             "type": "object",
-            "title": "Speed Curves",
+            "title": "Seasonal Fan Curves",
             "properties": {
-              "cooling_curve": {
-                "type": "object",
-                "title": "Cooling Curve",
-                "properties": {
-                  "breakpoints": {
-                    "type": "array",
-                    "items": {
-                      "type": "object",
-                      "properties": {
-                        "delta": {"type": "number", "title": "Temp Delta"},
-                        "speed_pct": {"type": "number", "minimum": 0, "maximum": 100, "title": "Fan Speed %"}
-                      },
-                      "required": ["delta", "speed_pct"]
-                    },
-                    "default": [
-                      {"delta": 0, "speed_pct": 0},
-                      {"delta": 3, "speed_pct": 50},
-                      {"delta": 6, "speed_pct": 85},
-                      {"delta": 8, "speed_pct": 100}
-                    ]
-                  }
-                }
-              },
-              "warming_curve": {
-                "type": "object",
-                "title": "Warming Curve",
-                "properties": {
-                  "breakpoints": {
-                    "type": "array",
-                    "items": {
-                      "type": "object",
-                      "properties": {
-                        "delta": {"type": "number", "title": "Temp Delta"},
-                        "speed_pct": {"type": "number", "minimum": 0, "maximum": 100, "title": "Fan Speed %"}
-                      },
-                      "required": ["delta", "speed_pct"]
-                    },
-                    "default": [
-                      {"delta": 0, "speed_pct": 0},
-                      {"delta": -2, "speed_pct": 10}
-                    ]
-                  }
-                }
-              }
+              "spring": { "$ref": "#/definitions/fan_curve" },
+              "summer": { "$ref": "#/definitions/fan_curve" },
+              "fall":   { "$ref": "#/definitions/fan_curve" },
+              "winter": { "$ref": "#/definitions/fan_curve" }
             }
           },
           "modifiers": {
@@ -234,5 +194,46 @@
       }
     }
   },
-  "required": ["plugin_config", "zones"]
+  "required": ["plugin_config", "zones"],
+  "definitions": {
+    "fan_curve": {
+      "type": "object",
+      "properties": {
+        "temperature_range": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 5,
+          "default": 3,
+          "title": "Temperature Range (degrees)"
+        },
+        "num_points": {
+          "type": "integer",
+          "minimum": 3,
+          "maximum": 11,
+          "default": 7,
+          "title": "Number of Control Points"
+        },
+        "points": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "offset": {"type": "number", "title": "Temp Offset"},
+              "speed": {"type": "number", "minimum": 0, "maximum": 100, "title": "Fan Speed %"}
+            },
+            "required": ["offset", "speed"]
+          },
+          "default": [
+            {"offset": -3.0, "speed": 0},
+            {"offset": -2.0, "speed": 10},
+            {"offset": -1.0, "speed": 20},
+            {"offset": 0.0, "speed": 30},
+            {"offset": 1.0, "speed": 55},
+            {"offset": 2.0, "speed": 80},
+            {"offset": 3.0, "speed": 100}
+          ]
+        }
+      }
+    }
+  }
 }

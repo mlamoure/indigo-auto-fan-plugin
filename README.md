@@ -4,7 +4,7 @@ Intelligent fan speed automation for [Indigo 2025.1](https://www.indigodomo.com/
 
 ## Features
 
-- **Dual Speed Curves** — Separate curves for cooling (room warmer than ideal) and warming (room cooler than ideal), with smooth linear interpolation between breakpoints
+- **Interactive Fan Speed Curve** — Visual SVG chart editor with draggable control points, configurable temperature range, and preset curve shapes
 - **Modifier Stack** — Layered adjustments for HVAC state, humidity, nighttime, and presence that stack on top of the base curve speed
 - **HVAC Auto-Detection** — Automatically detects winter/summer/transitional mode from thermostat setpoints (no manual season variable needed)
 - **Multi-Sensor Support** — Average multiple temperature sensors per zone
@@ -17,8 +17,8 @@ Intelligent fan speed automation for [Indigo 2025.1](https://www.indigodomo.com/
 Each fan zone defines:
 
 1. **A fan device** (SpeedControl, Dimmer, or Relay)
-2. **Temperature sensor(s)** and an **ideal temperature** (fixed or from a variable)
-3. **Speed curves** — breakpoints mapping temperature delta to fan speed percentage
+2. **Temperature sensor(s)** and an **ideal temperature** (fixed, from a variable, or from thermostat setpoints)
+3. **A fan speed curve** — maps temperature offset from target to fan speed percentage
 4. **Modifiers** — conditional adjustments:
    - HVAC cooling active: boost speed
    - HVAC heating active: reduce speed
@@ -26,21 +26,18 @@ Each fan zone defines:
    - Nighttime: clamp speed to a range
    - No presence: cap speed (default: fan off)
 
-### Speed Curve Example
+### Fan Speed Curve
 
-```
-Cooling curve (room warmer than ideal):
-  delta  0° → speed  0%
-  delta  3° → speed 50%
-  delta  6° → speed 85%
-  delta  8° → speed 100%
+Each zone has a unified fan curve spanning a symmetric temperature range (±1° to ±5°, default ±3°) with evenly-spaced control points (3 to 11, default 7). The interactive chart editor lets you:
 
-Warming curve (room cooler than ideal):
-  delta  0° → speed  0%
-  delta -2° → speed 10%
-```
+- **Drag points** vertically to set fan speed at each temperature offset
+- **Adjust range** to control how far from target the curve extends
+- **Change point count** for coarser or finer control
+- **Apply presets**: Linear Ramp, Aggressive Cooling, Gentle Curve, Off Until Hot
 
-At 75°F with ideal 72°F (delta = +3°), the cooling curve yields 50%. If HVAC is cooling (+15% modifier), final speed = 65%.
+At runtime, the plugin linearly interpolates between the two nearest control points. Values outside the configured range clamp to the nearest endpoint.
+
+**Example**: With range ±3° and points at 0°→30%, +1°→55%, +2°→80%, a room 1.5° above target yields ~67% fan speed. If HVAC is cooling (+15% modifier), final speed = ~82%.
 
 ### Zone Locking
 
@@ -85,7 +82,7 @@ http://localhost:8176/message/com.vtmikel.autofan/web_ui/
 | Presence Sensors | Motion/virtual presence devices |
 | Thermostat | For HVAC mode auto-detection and optional ideal temperature source |
 | Humidity Sensors | One or more humidity sensors for speed boost (averaged if multiple) |
-| Speed Curves | Breakpoint arrays for cooling and warming |
+| Fan Speed Curve | Interactive chart mapping temperature offset to fan speed |
 | Modifiers | HVAC, nighttime, humidity, presence adjustments |
 
 ## Development

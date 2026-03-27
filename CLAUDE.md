@@ -112,7 +112,7 @@ Two Indigo device types, both relay-based (on/off = enabled/disabled):
   - `target_speed_pct`, `current_speed_pct`
   - `hvac_mode`, `presence_detected`
   - `zone_locked`, `lock_expiration`
-  - `humidity`, `outdoor_temperature`
+  - `humidity`, `outdoor_temperature`, `current_season`
 
 ### Zone Device Fields
 
@@ -125,11 +125,13 @@ Two Indigo device types, both relay-based (on/off = enabled/disabled):
 
 ## Speed Model
 
-Each zone uses a **dual-curve** system:
-- **Cooling curve** (delta >= 0): maps positive temperature delta to fan speed
-- **Warming curve** (delta < 0): maps negative delta to a low circulation speed
+Each zone has **four seasonal fan curves** (spring, summer, fall, winter), each mapping temperature offset from ideal to fan speed (0-100%). The active curve is selected by meteorological season: Spring=Mar-May, Summer=Jun-Aug, Fall=Sep-Nov, Winter=Dec-Feb. Each curve spans a configurable symmetric range (±1° to ±5°, default ±3°) with an odd number of evenly-spaced control points (3 to 11, default 7). Linear interpolation between adjacent points determines the base speed. Values outside the range clamp to the nearest endpoint.
 
-Base speed from the selected curve is then passed through a **modifier stack** (order matters):
+Curves are configured via season tabs in the zone editor, each with an interactive SVG chart editor with draggable points, range/point-count sliders, and preset buttons (Linear Ramp, Aggressive Cooling, Gentle Curve, Off Until Hot).
+
+Data format: `seasonal_curves` object with `spring`, `summer`, `fall`, `winter` keys, each containing `temperature_range`, `num_points`, and `points` array of `{offset, speed}` pairs. Migration chain: legacy `speed_curves` (dual cooling/warming) → `fan_curve` (unified) → `seasonal_curves` (per-season, all four initialized from the single curve).
+
+Base speed from the curve is then passed through a **modifier stack** (order matters):
 1. HVAC cooling boost (additive)
 2. HVAC heating reduction (additive + clamp)
 3. Humidity boost (additive, above threshold)

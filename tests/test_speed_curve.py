@@ -6,97 +6,127 @@ from auto_fan.speed_curve import interpolate, calculate_base_speed, apply_modifi
 
 
 class TestInterpolate:
-    """Tests for the breakpoint interpolation function."""
+    """Tests for the control point interpolation function."""
 
-    def test_empty_breakpoints_returns_zero(self):
+    def test_empty_points_returns_zero(self):
         assert interpolate(5.0, []) == 0.0
 
-    def test_single_breakpoint_returns_its_value(self):
-        bp = [{"delta": 0, "speed_pct": 50}]
-        assert interpolate(0, bp) == 50
-        assert interpolate(-5, bp) == 50
-        assert interpolate(10, bp) == 50
+    def test_single_point_returns_its_value(self):
+        pts = [{"offset": 0, "speed": 50}]
+        assert interpolate(0, pts) == 50
+        assert interpolate(-5, pts) == 50
+        assert interpolate(10, pts) == 50
 
     def test_clamp_below_lowest(self):
-        bp = [{"delta": 0, "speed_pct": 10}, {"delta": 5, "speed_pct": 80}]
-        assert interpolate(-3, bp) == 10
+        pts = [{"offset": 0, "speed": 10}, {"offset": 5, "speed": 80}]
+        assert interpolate(-3, pts) == 10
 
     def test_clamp_above_highest(self):
-        bp = [{"delta": 0, "speed_pct": 10}, {"delta": 5, "speed_pct": 80}]
-        assert interpolate(10, bp) == 80
+        pts = [{"offset": 0, "speed": 10}, {"offset": 5, "speed": 80}]
+        assert interpolate(10, pts) == 80
 
-    def test_exact_breakpoint_value(self):
-        bp = [{"delta": 0, "speed_pct": 0}, {"delta": 5, "speed_pct": 100}]
-        assert interpolate(0, bp) == 0
-        assert interpolate(5, bp) == 100
+    def test_exact_point_value(self):
+        pts = [{"offset": 0, "speed": 0}, {"offset": 5, "speed": 100}]
+        assert interpolate(0, pts) == 0
+        assert interpolate(5, pts) == 100
 
     def test_midpoint_interpolation(self):
-        bp = [{"delta": 0, "speed_pct": 0}, {"delta": 10, "speed_pct": 100}]
-        assert interpolate(5, bp) == pytest.approx(50.0)
+        pts = [{"offset": 0, "speed": 0}, {"offset": 10, "speed": 100}]
+        assert interpolate(5, pts) == pytest.approx(50.0)
 
     def test_quarter_interpolation(self):
-        bp = [{"delta": 0, "speed_pct": 0}, {"delta": 8, "speed_pct": 100}]
-        assert interpolate(2, bp) == pytest.approx(25.0)
+        pts = [{"offset": 0, "speed": 0}, {"offset": 8, "speed": 100}]
+        assert interpolate(2, pts) == pytest.approx(25.0)
 
     def test_multi_segment_interpolation(self):
-        bp = [
-            {"delta": 0, "speed_pct": 0},
-            {"delta": 3, "speed_pct": 50},
-            {"delta": 6, "speed_pct": 85},
-            {"delta": 8, "speed_pct": 100},
+        pts = [
+            {"offset": 0, "speed": 0},
+            {"offset": 3, "speed": 50},
+            {"offset": 6, "speed": 85},
+            {"offset": 8, "speed": 100},
         ]
         # Between 0 and 3
-        assert interpolate(1.5, bp) == pytest.approx(25.0)
+        assert interpolate(1.5, pts) == pytest.approx(25.0)
         # Between 3 and 6
-        assert interpolate(4.5, bp) == pytest.approx(67.5)
+        assert interpolate(4.5, pts) == pytest.approx(67.5)
         # Between 6 and 8
-        assert interpolate(7, bp) == pytest.approx(92.5)
+        assert interpolate(7, pts) == pytest.approx(92.5)
 
-    def test_negative_deltas_warming_curve(self):
-        bp = [
-            {"delta": -4, "speed_pct": 20},
-            {"delta": -2, "speed_pct": 10},
-            {"delta": 0, "speed_pct": 0},
+    def test_negative_offsets(self):
+        pts = [
+            {"offset": -4, "speed": 20},
+            {"offset": -2, "speed": 10},
+            {"offset": 0, "speed": 0},
         ]
-        assert interpolate(-3, bp) == pytest.approx(15.0)
-        assert interpolate(-1, bp) == pytest.approx(5.0)
-        assert interpolate(-5, bp) == 20  # clamped below
+        assert interpolate(-3, pts) == pytest.approx(15.0)
+        assert interpolate(-1, pts) == pytest.approx(5.0)
+        assert interpolate(-5, pts) == 20  # clamped below
 
-    def test_unsorted_breakpoints_still_work(self):
-        bp = [
-            {"delta": 5, "speed_pct": 100},
-            {"delta": 0, "speed_pct": 0},
+    def test_unsorted_points_still_work(self):
+        pts = [
+            {"offset": 5, "speed": 100},
+            {"offset": 0, "speed": 0},
         ]
-        assert interpolate(2.5, bp) == pytest.approx(50.0)
+        assert interpolate(2.5, pts) == pytest.approx(50.0)
 
 
 class TestCalculateBaseSpeed:
-    """Tests for curve selection based on delta sign."""
+    """Tests for unified fan curve base speed calculation."""
 
-    def test_positive_delta_uses_cooling_curve(self):
-        cooling = {"breakpoints": [{"delta": 0, "speed_pct": 0}, {"delta": 5, "speed_pct": 100}]}
-        warming = {"breakpoints": [{"delta": 0, "speed_pct": 0}, {"delta": -5, "speed_pct": 50}]}
-        speed, curve = calculate_base_speed(3.0, cooling, warming)
-        assert curve == "cooling"
-        assert speed == pytest.approx(60.0)
+    def test_positive_delta_interpolation(self):
+        fan_curve = {"points": [
+            {"offset": -3, "speed": 0},
+            {"offset": 0, "speed": 30},
+            {"offset": 3, "speed": 100},
+        ]}
+        speed = calculate_base_speed(2.0, fan_curve)
+        # Between offset 0 (30%) and offset 3 (100%): t=2/3, speed=30+46.67=76.67
+        assert speed == pytest.approx(76.667, abs=0.1)
 
-    def test_negative_delta_uses_warming_curve(self):
-        cooling = {"breakpoints": [{"delta": 0, "speed_pct": 0}, {"delta": 5, "speed_pct": 100}]}
-        warming = {"breakpoints": [{"delta": 0, "speed_pct": 0}, {"delta": -5, "speed_pct": 50}]}
-        speed, curve = calculate_base_speed(-2.5, cooling, warming)
-        assert curve == "warming"
-        assert speed == pytest.approx(25.0)
+    def test_negative_delta_interpolation(self):
+        fan_curve = {"points": [
+            {"offset": -3, "speed": 0},
+            {"offset": 0, "speed": 30},
+            {"offset": 3, "speed": 100},
+        ]}
+        speed = calculate_base_speed(-1.5, fan_curve)
+        # Between offset -3 (0%) and offset 0 (30%): t=1.5/3=0.5, speed=15
+        assert speed == pytest.approx(15.0)
 
-    def test_zero_delta_uses_cooling_curve(self):
-        cooling = {"breakpoints": [{"delta": 0, "speed_pct": 15}]}
-        warming = {"breakpoints": [{"delta": 0, "speed_pct": 0}]}
-        speed, curve = calculate_base_speed(0.0, cooling, warming)
-        assert curve == "cooling"
-        assert speed == 15
+    def test_zero_delta(self):
+        fan_curve = {"points": [
+            {"offset": -2, "speed": 10},
+            {"offset": 0, "speed": 40},
+            {"offset": 2, "speed": 90},
+        ]}
+        speed = calculate_base_speed(0.0, fan_curve)
+        assert speed == 40.0
 
-    def test_empty_curves_return_zero(self):
-        speed, curve = calculate_base_speed(5.0, {"breakpoints": []}, {"breakpoints": []})
-        assert speed == 0.0
+    def test_beyond_range_clamps(self):
+        fan_curve = {"points": [
+            {"offset": -3, "speed": 5},
+            {"offset": 3, "speed": 95},
+        ]}
+        assert calculate_base_speed(-10.0, fan_curve) == 5.0
+        assert calculate_base_speed(10.0, fan_curve) == 95.0
+
+    def test_empty_points_returns_zero(self):
+        fan_curve = {"points": []}
+        assert calculate_base_speed(2.0, fan_curve) == 0.0
+
+    def test_simple_linear_curve(self):
+        """Curve matching old cooling curve: 0-5 delta maps to 0-100%."""
+        fan_curve = {"points": [
+            {"offset": -5, "speed": 50},
+            {"offset": 0, "speed": 0},
+            {"offset": 5, "speed": 100},
+        ]}
+        # Positive delta
+        assert calculate_base_speed(2.5, fan_curve) == pytest.approx(50.0)
+        # Negative delta
+        assert calculate_base_speed(-2.5, fan_curve) == pytest.approx(25.0)
+        # At target
+        assert calculate_base_speed(0.0, fan_curve) == 0.0
 
 
 class TestApplyModifiers:

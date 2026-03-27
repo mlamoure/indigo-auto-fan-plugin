@@ -1,6 +1,7 @@
 """Tests for FanZone class."""
 import pytest
 from datetime import datetime, timedelta
+from unittest.mock import patch
 from conftest import Device, Variable
 
 import indigo
@@ -240,7 +241,7 @@ class TestFanZoneSpeedCalc:
         return TestFanZoneTemperature._make_zone(self)
 
     def test_basic_cooling_speed(self, fake_indigo):
-        """Room 2.5 degrees above ideal -> 50% speed on cooling curve."""
+        """Room 2.5 degrees above ideal -> 50% speed on fan curve."""
         fake_indigo.devices[200] = Device(200, name="Temp", sensorValue=74.5)
         fake_indigo.devices[200].states["sensorValue"] = 74.5
         fake_indigo.devices[300] = Device(300, name="Motion", onState=True)
@@ -249,11 +250,11 @@ class TestFanZoneSpeedCalc:
         zone, config = self._make_zone()
         plan = zone.calculate_target_speed()
 
-        # delta = 74.5 - 72 = 2.5 -> cooling curve: 2.5/5 * 100 = 50%
+        # delta = 74.5 - 72 = 2.5 -> fan curve: between offset 0 (0%) and offset 5 (100%): 50%
         assert plan.target_speed_pct == pytest.approx(50.0)
 
     def test_warming_speed(self, fake_indigo):
-        """Room below ideal -> use warming curve."""
+        """Room below ideal -> interpolate on negative side of fan curve."""
         fake_indigo.devices[200] = Device(200, name="Temp", sensorValue=69.5)
         fake_indigo.devices[200].states["sensorValue"] = 69.5
         fake_indigo.devices[300] = Device(300, name="Motion", onState=True)
@@ -262,7 +263,7 @@ class TestFanZoneSpeedCalc:
         zone, config = self._make_zone()
         plan = zone.calculate_target_speed()
 
-        # delta = 69.5 - 72 = -2.5 -> warming curve: -2.5/-5 * 50 = 25%
+        # delta = 69.5 - 72 = -2.5 -> fan curve: between offset -5 (50%) and offset 0 (0%): 25%
         assert plan.target_speed_pct == pytest.approx(25.0)
 
     def test_disabled_zone_returns_zero(self, fake_indigo):
@@ -312,6 +313,41 @@ class TestFanZoneSpeedCalc:
         zone.ideal_temp_source = "thermostat"
         zone.ideal_temp_var_id = 500
         assert zone.has_variable(500) is False
+
+    def test_seasonal_curve_selection(self, fake_indigo):
+        """Speed calculation should use the curve for the current season."""
+        fake_indigo.devices[200] = Device(200, name="Temp", sensorValue=74.5)
+        fake_indigo.devices[200].states["sensorValue"] = 74.5
+        fake_indigo.devices[300] = Device(300, name="Motion", onState=True)
+        fake_indigo.devices[100] = Device(100, name="Fan", speedLevel=0)
+
+        zone, config = self._make_zone()
+        # Set winter curve to produce very low speeds
+        zone.seasonal_curves["winter"] = {
+            "temperature_range": 3, "num_points": 3,
+            "points": [
+                {"offset": -3, "speed": 0},
+                {"offset": 0, "speed": 0},
+                {"offset": 3, "speed": 10},
+            ]
+        }
+
+        # Mock to winter (January)
+        with patch("auto_fan.fan_zone.get_current_season", return_value="winter"):
+            plan = zone.calculate_target_speed()
+            assert plan.target_speed_pct < 20
+
+    def test_fan_curve_property_returns_current_season(self, fake_indigo):
+        """fan_curve property should return the curve for the mocked season."""
+        zone, config = self._make_zone()
+        zone.seasonal_curves["summer"] = {
+            "temperature_range": 5, "num_points": 3,
+            "points": [{"offset": -5, "speed": 0}, {"offset": 0, "speed": 50}, {"offset": 5, "speed": 100}]
+        }
+
+        with patch("auto_fan.fan_zone.get_current_season", return_value="summer"):
+            curve = zone.fan_curve
+            assert curve["temperature_range"] == 5
 
 
 class TestFanZoneHVAC:

@@ -423,70 +423,14 @@ class IWSWebHandler:
                 if isinstance(val, str):
                     zone_data[bool_field] = val.lower() in ("true", "y", "1", "on", "yes")
 
-            # Process speed curve breakpoints from hidden JSON fields
-            cooling_bp_json = body_params.get("cooling_breakpoints_json", "")
-            warming_bp_json = body_params.get("warming_breakpoints_json", "")
-
-            if cooling_bp_json:
+            # Process seasonal curves from hidden JSON field
+            seasonal_curves_json = body_params.get("seasonal_curves_json", "")
+            if seasonal_curves_json:
                 try:
-                    cooling_breakpoints = json.loads(cooling_bp_json)
+                    zone_data["seasonal_curves"] = json.loads(seasonal_curves_json)
                 except (json.JSONDecodeError, TypeError):
-                    cooling_breakpoints = []
-            else:
-                # Fall back to parsing individual input fields
-                cooling_breakpoints = []
-                i = 0
-                while True:
-                    delta_key = f"cooling_breakpoint_delta_{i}"
-                    speed_key = f"cooling_breakpoint_speed_{i}"
-                    if delta_key in body_params and speed_key in body_params:
-                        try:
-                            cooling_breakpoints.append({
-                                "delta": float(body_params[delta_key]),
-                                "speed_pct": float(body_params[speed_key])
-                            })
-                        except (ValueError, TypeError):
-                            pass
-                        i += 1
-                    else:
-                        break
-
-            if warming_bp_json:
-                try:
-                    warming_breakpoints = json.loads(warming_bp_json)
-                except (json.JSONDecodeError, TypeError):
-                    warming_breakpoints = []
-            else:
-                # Fall back to parsing individual input fields
-                warming_breakpoints = []
-                i = 0
-                while True:
-                    delta_key = f"warming_breakpoint_delta_{i}"
-                    speed_key = f"warming_breakpoint_speed_{i}"
-                    if delta_key in body_params and speed_key in body_params:
-                        try:
-                            warming_breakpoints.append({
-                                "delta": float(body_params[delta_key]),
-                                "speed_pct": float(body_params[speed_key])
-                            })
-                        except (ValueError, TypeError):
-                            pass
-                        i += 1
-                    else:
-                        break
-
-            # Ensure speed_curves structure exists and update breakpoints
-            if "speed_curves" not in zone_data or not isinstance(zone_data.get("speed_curves"), dict):
-                zone_data["speed_curves"] = {}
-            if "cooling_curve" not in zone_data["speed_curves"] or not isinstance(zone_data["speed_curves"].get("cooling_curve"), dict):
-                zone_data["speed_curves"]["cooling_curve"] = {}
-            if "warming_curve" not in zone_data["speed_curves"] or not isinstance(zone_data["speed_curves"].get("warming_curve"), dict):
-                zone_data["speed_curves"]["warming_curve"] = {}
-
-            if cooling_breakpoints:
-                zone_data["speed_curves"]["cooling_curve"]["breakpoints"] = cooling_breakpoints
-            if warming_breakpoints:
-                zone_data["speed_curves"]["warming_curve"]["breakpoints"] = warming_breakpoints
+                    pass
+            zone_data.pop("fan_curve", None)
 
             # Save based on new or existing
             if zone_id == "new":

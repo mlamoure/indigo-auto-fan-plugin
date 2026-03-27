@@ -4,6 +4,7 @@ from typing import List, Optional, Tuple
 
 from .auto_fan_base import AutoFanBase
 from .hvac_mode import HvacMode, detect_hvac_mode
+from .seasons import SEASONS, get_current_season
 from .speed_curve import apply_modifiers, calculate_base_speed
 from .speed_plan import SpeedPlan
 from .utils import get_fan_speed_pct, send_fan_speed
@@ -15,6 +16,20 @@ except ImportError:
 
 # Grace period before unlocking when presence disappears
 LOCK_HOLD_GRACE_SECONDS = 30
+
+DEFAULT_FAN_CURVE = {
+    "temperature_range": 3,
+    "num_points": 7,
+    "points": [
+        {"offset": -3.0, "speed": 0},
+        {"offset": -2.0, "speed": 10},
+        {"offset": -1.0, "speed": 20},
+        {"offset": 0.0, "speed": 30},
+        {"offset": 1.0, "speed": 55},
+        {"offset": 2.0, "speed": 80},
+        {"offset": 3.0, "speed": 100},
+    ],
+}
 
 
 class FanZone(AutoFanBase):
@@ -41,18 +56,10 @@ class FanZone(AutoFanBase):
         self.ideal_temp_source: str = "static"
         self.ideal_temp_var_id: Optional[int] = None
 
-        # Speed curves
-        self.speed_curves: dict = {
-            "cooling_curve": {"breakpoints": [
-                {"delta": 0, "speed_pct": 0},
-                {"delta": 3, "speed_pct": 50},
-                {"delta": 6, "speed_pct": 85},
-                {"delta": 8, "speed_pct": 100},
-            ]},
-            "warming_curve": {"breakpoints": [
-                {"delta": 0, "speed_pct": 0},
-                {"delta": -2, "speed_pct": 10},
-            ]},
+        # Seasonal fan curves (one per season)
+        self.seasonal_curves: dict = {
+            s: dict(DEFAULT_FAN_CURVE, points=[dict(p) for p in DEFAULT_FAN_CURVE["points"]])
+            for s in SEASONS
         }
 
         # Modifiers
@@ -94,7 +101,15 @@ class FanZone(AutoFanBase):
              "getter": lambda: self.get_humidity() or 0},
             {"key": "outdoor_temperature", "label": "Outdoor Temperature", "type": "number",
              "getter": lambda: self.get_outdoor_temperature() or 0},
+            {"key": "current_season", "label": "Current Season", "type": "string",
+             "getter": lambda: get_current_season()},
         ]
+
+    @property
+    def fan_curve(self) -> dict:
+        """Return the fan curve for the current season."""
+        season = get_current_season()
+        return self.seasonal_curves.get(season, self.seasonal_curves.get("summer", {}))
 
     def from_config_dict(self, data: dict) -> None:
         """Load zone configuration from a parsed JSON dict."""
@@ -110,7 +125,11 @@ class FanZone(AutoFanBase):
         self.ideal_temp_source = data.get("ideal_temp_source", "static")
         self.ideal_temp_var_id = data.get("ideal_temp_var_id")
 
-        self.speed_curves = data.get("speed_curves", self.speed_curves)
+        if "seasonal_curves" in data:
+            self.seasonal_curves = data["seasonal_curves"]
+        elif "fan_curve" in data:
+            curve = data["fan_curve"]
+            self.seasonal_curves = {s: dict(curve) for s in SEASONS}
         self.modifiers = data.get("modifiers", {})
 
         self.lock_duration = data.get("lock_duration", -1)
@@ -329,12 +348,11 @@ class FanZone(AutoFanBase):
             ("🌡️", f"Temp: {current_temp:.1f}°F, Ideal: {ideal:.1f}°F, Delta: {delta:+.1f}°F")
         )
 
-        # Interpolate base speed from curve
-        cooling_curve = self.speed_curves.get("cooling_curve", {"breakpoints": []})
-        warming_curve = self.speed_curves.get("warming_curve", {"breakpoints": []})
-        base_speed, curve_name = calculate_base_speed(delta, cooling_curve, warming_curve)
+        # Interpolate base speed from fan curve (selected by current season)
+        season = get_current_season()
+        base_speed = calculate_base_speed(delta, self.fan_curve)
         plan.contributions.append(
-            ("📈", f"{curve_name.title()} curve → {base_speed:.1f}%")
+            ("📈", f"Fan curve ({season}) → {base_speed:.1f}%")
         )
 
         # Apply modifiers

@@ -1,14 +1,70 @@
 import json
+import math
 from pathlib import Path
 from typing import List
 
 from .auto_fan_base import AutoFanBase
 from .fan_zone import FanZone
+from .seasons import SEASONS
 
 try:
     import indigo
 except ImportError:
     pass
+
+
+def _convert_dual_curves_to_unified(old_curves: dict) -> dict:
+    """Convert legacy dual cooling/warming curves to a unified fan curve."""
+    # Merge all breakpoints from both curves into one list
+    combined = []
+    for curve_key in ("cooling_curve", "warming_curve"):
+        curve = old_curves.get(curve_key, {})
+        for bp in curve.get("breakpoints", []):
+            combined.append({"offset": bp.get("delta", 0), "speed": bp.get("speed_pct", 0)})
+
+    if not combined:
+        # Return default curve
+        return {
+            "temperature_range": 3,
+            "num_points": 7,
+            "points": [
+                {"offset": -3.0, "speed": 0}, {"offset": -2.0, "speed": 10},
+                {"offset": -1.0, "speed": 20}, {"offset": 0.0, "speed": 30},
+                {"offset": 1.0, "speed": 55}, {"offset": 2.0, "speed": 80},
+                {"offset": 3.0, "speed": 100},
+            ],
+        }
+
+    combined.sort(key=lambda p: p["offset"])
+
+    # Determine range from max absolute offset, clamped to 1-5
+    max_abs = max(abs(p["offset"]) for p in combined)
+    temp_range = max(1, min(5, int(math.ceil(max_abs))))
+
+    # Resample onto 7-point evenly-spaced grid
+    num_points = 7
+    points = []
+    for i in range(num_points):
+        offset = -temp_range + (2 * temp_range * i) / (num_points - 1)
+        # Linear interpolation from combined points
+        if offset <= combined[0]["offset"]:
+            speed = combined[0]["speed"]
+        elif offset >= combined[-1]["offset"]:
+            speed = combined[-1]["speed"]
+        else:
+            speed = 0.0
+            for j in range(len(combined) - 1):
+                if combined[j]["offset"] <= offset <= combined[j + 1]["offset"]:
+                    span = combined[j + 1]["offset"] - combined[j]["offset"]
+                    if span == 0:
+                        speed = combined[j]["speed"]
+                    else:
+                        t = (offset - combined[j]["offset"]) / span
+                        speed = combined[j]["speed"] + t * (combined[j + 1]["speed"] - combined[j]["speed"])
+                    break
+        points.append({"offset": round(offset, 2), "speed": round(speed)})
+
+    return {"temperature_range": temp_range, "num_points": num_points, "points": points}
 
 
 class AutoFanConfig(AutoFanBase):
@@ -168,6 +224,20 @@ class AutoFanConfig(AutoFanBase):
 
         # Remove deprecated weather_dev_id_override
         zone_d.pop("weather_dev_id_override", None)
+
+        # speed_curves (dual cooling+warming) → fan_curve (unified)
+        if "speed_curves" in zone_d and "fan_curve" not in zone_d:
+            old = zone_d.pop("speed_curves")
+            zone_d["fan_curve"] = _convert_dual_curves_to_unified(old)
+        elif "speed_curves" in zone_d:
+            zone_d.pop("speed_curves")
+
+        # fan_curve (single) → seasonal_curves (per-season)
+        if "fan_curve" in zone_d and "seasonal_curves" not in zone_d:
+            curve = zone_d.pop("fan_curve")
+            zone_d["seasonal_curves"] = {s: dict(curve) for s in SEASONS}
+        elif "fan_curve" in zone_d and "seasonal_curves" in zone_d:
+            zone_d.pop("fan_curve")
 
     @property
     def zones(self) -> List[FanZone]:
