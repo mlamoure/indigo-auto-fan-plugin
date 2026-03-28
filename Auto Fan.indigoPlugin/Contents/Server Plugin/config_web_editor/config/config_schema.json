@@ -26,6 +26,22 @@
           "x-drop-down": true,
           "title": "Weather Device (Outdoor Temp)",
           "tooltip": "Device providing outdoor temperature (feelslike, temp, or temperature state)."
+        },
+        "away_var_id": {
+          "type": "integer",
+          "x-sync_to_indigo": true,
+          "x-drop-down": true,
+          "title": "Home/Away Variable",
+          "tooltip": "Indigo variable that indicates whether someone is home. Used by per-zone Away modifiers."
+        },
+        "away_var_home_value": {
+          "type": "string",
+          "x-sync_to_indigo": true,
+          "enum": ["true", "false"],
+          "x-enum-labels": ["true", "false"],
+          "default": "true",
+          "title": "Variable Value When Home",
+          "tooltip": "The value of the Home/Away variable that means someone is home."
         }
       }
     },
@@ -223,15 +239,15 @@
                   }
                 }
               },
-              "no_presence": {
+              "away": {
                 "type": "object",
-                "title": "No Presence Modifier",
+                "title": "Away Modifier",
                 "properties": {
                   "clamp_max_pct": {
                     "type": "integer",
                     "enum": [0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100],
                     "x-enum-labels": ["Off (0%)", "10%", "20%", "30%", "40%", "50%", "60%", "70%", "80%", "90%", "No Maximum"],
-                    "default": 0,
+                    "default": 100,
                     "title": "Max Speed When Away"
                   }
                 }

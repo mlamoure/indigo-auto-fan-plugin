@@ -423,7 +423,8 @@ class TestMigrateModifiers:
         assert hum["speed_boost_pct"] == 0  # was disabled
         assert hum["threshold"] == 55  # 55 rounds to 55
 
-    def test_migrate_no_presence_enabled(self, fake_indigo):
+    def test_migrate_no_presence_enabled_to_away(self, fake_indigo):
+        """Legacy no_presence with enabled=True migrates to away modifier."""
         from auto_fan.auto_fan_config import AutoFanConfig
         zone_d = {
             "name": "Test",
@@ -432,11 +433,13 @@ class TestMigrateModifiers:
             },
         }
         AutoFanConfig._migrate_zone(zone_d)
-        no_pres = zone_d["modifiers"]["no_presence"]
-        assert "enabled" not in no_pres
-        assert no_pres["clamp_max_pct"] == 0
+        assert "no_presence" not in zone_d["modifiers"]
+        away = zone_d["modifiers"]["away"]
+        assert "enabled" not in away
+        assert away["clamp_max_pct"] == 0
 
-    def test_migrate_no_presence_disabled(self, fake_indigo):
+    def test_migrate_no_presence_disabled_to_away(self, fake_indigo):
+        """Legacy no_presence with enabled=False migrates to away with max=100."""
         from auto_fan.auto_fan_config import AutoFanConfig
         zone_d = {
             "name": "Test",
@@ -445,9 +448,23 @@ class TestMigrateModifiers:
             },
         }
         AutoFanConfig._migrate_zone(zone_d)
-        no_pres = zone_d["modifiers"]["no_presence"]
-        assert "enabled" not in no_pres
-        assert no_pres["clamp_max_pct"] == 100  # effectively disabled
+        assert "no_presence" not in zone_d["modifiers"]
+        away = zone_d["modifiers"]["away"]
+        assert "enabled" not in away
+        assert away["clamp_max_pct"] == 100  # effectively disabled
+
+    def test_migrate_no_presence_new_format_to_away(self, fake_indigo):
+        """New-format no_presence (no enabled key) renamed to away."""
+        from auto_fan.auto_fan_config import AutoFanConfig
+        zone_d = {
+            "name": "Test",
+            "modifiers": {
+                "no_presence": {"clamp_max_pct": 30}
+            },
+        }
+        AutoFanConfig._migrate_zone(zone_d)
+        assert "no_presence" not in zone_d["modifiers"]
+        assert zone_d["modifiers"]["away"]["clamp_max_pct"] == 30
 
     def test_no_migration_when_already_new_format(self, fake_indigo):
         """New-format modifiers (no 'enabled' key) should pass through unchanged."""
@@ -513,8 +530,9 @@ class TestMigrateModifiers:
         assert mods["humidity"]["speed_boost_pct"] == 20
         assert "speed_adjust_per_unit_pct" not in mods["humidity"]
 
-        # No presence
-        assert mods["no_presence"]["clamp_max_pct"] == 0
+        # Away (migrated from no_presence)
+        assert "no_presence" not in mods
+        assert mods["away"]["clamp_max_pct"] == 0
 
     def test_migration_is_idempotent(self, fake_indigo):
         """Running migration twice produces identical results."""

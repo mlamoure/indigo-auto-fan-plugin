@@ -521,7 +521,7 @@ class IWSWebHandler:
             }
 
             # Coerce integer fields
-            for int_field in ["default_lock_duration", "default_lock_extension_duration", "weather_dev_id"]:
+            for int_field in ["default_lock_duration", "default_lock_extension_duration", "weather_dev_id", "away_var_id"]:
                 val = plugin_config.get(int_field)
                 if val is not None and val != "" and val != "-1":
                     try:
