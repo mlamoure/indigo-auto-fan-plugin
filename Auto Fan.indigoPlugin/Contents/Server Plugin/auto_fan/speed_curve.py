@@ -77,6 +77,7 @@ def apply_modifiers(
     is_hvac_heating: bool,
     humidity: Optional[float],
     has_presence: bool,
+    season: str = "summer",
 ) -> Tuple[float, List[Tuple[str, str]]]:
     """
     Apply modifier stack to base speed.
@@ -151,7 +152,7 @@ def apply_modifiers(
     # 4. Nighttime clamp
     # Neutral values (min=0, max=100) implicitly disable this modifier,
     # avoiding the need for a separate "enabled" flag.
-    night_mod = modifiers.get("nighttime", {})
+    night_mod = modifiers.get("nighttime", {}).get(season, {})
     clamp_min = night_mod.get("clamp_min_pct", 0)
     clamp_max = night_mod.get("clamp_max_pct", 100)
     if clamp_max < 100 or clamp_min > 0:

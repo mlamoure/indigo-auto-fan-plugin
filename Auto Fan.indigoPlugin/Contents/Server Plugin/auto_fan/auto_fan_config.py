@@ -143,6 +143,20 @@ def _migrate_modifiers(zone_d: dict) -> None:
         else:
             no_pres["clamp_max_pct"] = 100  # Effectively disabled
 
+    # Nighttime: flat → per-season
+    # After the enabled→flat migration above, detect flat format (has clamp keys
+    # directly, not nested under a season) and wrap into all 4 seasons.
+    night = mods.get("nighttime", {})
+    season_keys = ("spring", "summer", "fall", "winter")
+    if night and not any(s in night for s in season_keys):
+        flat_values = {
+            "clamp_min_pct": night.get("clamp_min_pct", 0),
+            "clamp_max_pct": night.get("clamp_max_pct", 100),
+            "night_start_hour": night.get("night_start_hour", 22),
+            "night_end_hour": night.get("night_end_hour", 8),
+        }
+        mods["nighttime"] = {s: dict(flat_values) for s in season_keys}
+
 
 class AutoFanConfig(AutoFanBase):
     """

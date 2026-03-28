@@ -5,6 +5,8 @@ from typing import List
 from .auto_fan_base import AutoFanBase
 from .auto_fan_config import AutoFanConfig
 from .fan_zone import FanZone
+from .seasons import get_current_season
+from .speed_curve import apply_modifiers, calculate_base_speed
 
 try:
     import indigo
@@ -79,13 +81,7 @@ class AutoFanAgent(AutoFanBase):
 
         # Apply changes if speed differs
         if zone.has_speed_change():
-            self.logger.info(f"🌀 Zone '{zone.name}': adjusting fan speed")
-            self.logger.info(f"\t📝 Speed logic:")
-            for emoji, msg in plan.contributions:
-                self.logger.info(f"\t\t{emoji} {msg}")
-            self.logger.info(f"\t⚙️ Changes:")
-            for emoji, msg in plan.device_changes:
-                self.logger.info(f"\t\t{emoji} {msg}")
+            self._log_zone_breakdown(zone)
             zone.apply_speed_change()
         else:
             self._debug_log(f"Zone '{zone.name}': no speed change needed")
@@ -119,6 +115,12 @@ class AutoFanAgent(AutoFanBase):
 
                 # Detect manual speed change (not caused by us)
                 if any(k in diff for k in SPEED_CHANGE_KEYS) and not zone.locked:
+                    if zone.is_self_triggered_change():
+                        self._debug_log(
+                            f"Ignoring self-triggered fan change on '{orig_dev.name}' for zone '{zone.name}'"
+                        )
+                        processed.append(zone)
+                        continue
                     zone.lock_zone(reason=f"manual change on '{orig_dev.name}'")
                     processed.append(zone)
 
@@ -229,6 +231,95 @@ class AutoFanAgent(AutoFanBase):
             for zone in locked_zones:
                 exp = zone.lock_expiration.strftime('%H:%M:%S') if zone.lock_expiration else "N/A"
                 self.logger.info(f"🔒 Zone '{zone.name}' locked until {exp}")
+
+    def _log_zone_breakdown(self, zone: FanZone) -> None:
+        """Log a detailed temperature/speed breakdown for a single zone."""
+        log = self.logger.info
+        log(f"📊 Zone '{zone.name}' — Temperature Breakdown")
+
+        # Ideal temperature
+        log("  🎯 Ideal Temperature:")
+        for emoji, msg in zone.get_ideal_temperature_breakdown():
+            prefix = f"  {emoji} " if emoji else "  "
+            log(f"    {prefix}{msg}")
+
+        # Sensor readings
+        readings = zone.get_sensor_readings()
+        if readings:
+            log("  🌡️ Sensor Readings:")
+            for dev_id, name, value in readings:
+                if value is not None:
+                    log(f"      '{name}' (id:{dev_id}): {value:.1f}°F")
+                else:
+                    log(f"      '{name}' (id:{dev_id}): unavailable")
+            avg = zone.get_current_temperature()
+            if avg is not None:
+                log(f"      Average: {avg:.1f}°F")
+        else:
+            log("  🌡️ No temperature sensors configured")
+
+        # Delta
+        delta = zone.get_temperature_delta()
+        if delta is not None:
+            if delta > 0:
+                interp = "warmer than ideal"
+            elif delta < 0:
+                interp = "cooler than ideal"
+            else:
+                interp = "at ideal"
+            log(f"  📐 Delta: {delta:+.1f}°F ({interp})")
+        else:
+            log("  📐 Delta: unavailable (missing sensor data)")
+            return
+
+        # Season and fan curve
+        season = get_current_season()
+        curve = zone.fan_curve
+        temp_range = curve.get("temperature_range", "?")
+        num_points = len(curve.get("points", []))
+        log(f"  📅 Season: {season}, curve range: ±{temp_range}°F, {num_points} points")
+
+        # Base speed
+        base_speed = calculate_base_speed(delta, curve)
+        log(f"  📈 Base speed from curve: {base_speed:.1f}%")
+
+        # Modifiers
+        final_speed, modifier_contribs = apply_modifiers(
+            base_speed=base_speed,
+            modifiers=zone.modifiers,
+            is_hvac_cooling=zone.is_hvac_cooling(),
+            is_hvac_heating=zone.is_hvac_heating(),
+            humidity=zone.get_humidity(),
+            has_presence=zone.has_presence_detected(),
+            season=season,
+        )
+        if modifier_contribs:
+            log("  🔧 Modifiers:")
+            for emoji, msg in modifier_contribs:
+                log(f"      {emoji} {msg}")
+        else:
+            log("  🔧 Modifiers: none active")
+
+        # Final speed and current
+        log(f"  🎯 Final target speed: {final_speed:.0f}%")
+        current_speed = zone._get_current_speed_pct()
+        log(f"  🌀 Current fan speed: {current_speed:.0f}%")
+
+        # Status notes
+        if not zone.enabled:
+            log("  ⏸️ Zone is DISABLED")
+        if zone.locked:
+            exp = zone.lock_expiration.strftime('%H:%M:%S') if zone.lock_expiration else "N/A"
+            log(f"  🔒 Zone is LOCKED until {exp}")
+
+    def print_zone_breakdowns(self) -> None:
+        """Log detailed temperature breakdown for all zones."""
+        zones = self.config.zones
+        if not zones:
+            self.logger.info("No zones configured.")
+            return
+        for zone in zones:
+            self._log_zone_breakdown(zone)
 
     def enable_all_zones(self) -> None:
         self.config.enabled = True

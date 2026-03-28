@@ -365,10 +365,13 @@ class TestMigrateModifiers:
         }
         AutoFanConfig._migrate_zone(zone_d)
         night = zone_d["modifiers"]["nighttime"]
-        assert "enabled" not in night
-        assert night["clamp_max_pct"] == 50
-        assert night["clamp_min_pct"] == 0
-        assert night["night_start_hour"] == 22
+        # Should be per-season now
+        for season in ("spring", "summer", "fall", "winter"):
+            assert season in night
+            assert night[season]["clamp_max_pct"] == 50
+            assert night[season]["clamp_min_pct"] == 0
+            assert night[season]["night_start_hour"] == 22
+            assert night[season]["night_end_hour"] == 8
 
     def test_migrate_nighttime_disabled(self, fake_indigo):
         from auto_fan.auto_fan_config import AutoFanConfig
@@ -383,9 +386,51 @@ class TestMigrateModifiers:
         }
         AutoFanConfig._migrate_zone(zone_d)
         night = zone_d["modifiers"]["nighttime"]
-        assert "enabled" not in night
-        assert night["clamp_max_pct"] == 100  # effectively disabled
-        assert night["clamp_min_pct"] == 0
+        # Disabled → neutral values, then wrapped per-season
+        for season in ("spring", "summer", "fall", "winter"):
+            assert season in night
+            assert night[season]["clamp_max_pct"] == 100  # effectively disabled
+            assert night[season]["clamp_min_pct"] == 0
+
+    def test_migrate_nighttime_flat_to_per_season(self, fake_indigo):
+        """Flat nighttime (no enabled key) gets migrated to per-season."""
+        from auto_fan.auto_fan_config import AutoFanConfig
+        zone_d = {
+            "name": "Test",
+            "modifiers": {
+                "nighttime": {
+                    "clamp_min_pct": 10, "clamp_max_pct": 60,
+                    "night_start_hour": 21, "night_end_hour": 7,
+                }
+            },
+        }
+        AutoFanConfig._migrate_zone(zone_d)
+        night = zone_d["modifiers"]["nighttime"]
+        for season in ("spring", "summer", "fall", "winter"):
+            assert season in night
+            assert night[season]["clamp_min_pct"] == 10
+            assert night[season]["clamp_max_pct"] == 60
+            assert night[season]["night_start_hour"] == 21
+            assert night[season]["night_end_hour"] == 7
+
+    def test_migrate_nighttime_already_per_season(self, fake_indigo):
+        """Per-season nighttime passes through unchanged."""
+        from auto_fan.auto_fan_config import AutoFanConfig
+        zone_d = {
+            "name": "Test",
+            "modifiers": {
+                "nighttime": {
+                    "spring": {"clamp_min_pct": 0, "clamp_max_pct": 50, "night_start_hour": 21, "night_end_hour": 7},
+                    "summer": {"clamp_min_pct": 0, "clamp_max_pct": 70, "night_start_hour": 22, "night_end_hour": 8},
+                    "fall":   {"clamp_min_pct": 0, "clamp_max_pct": 50, "night_start_hour": 21, "night_end_hour": 7},
+                    "winter": {"clamp_min_pct": 0, "clamp_max_pct": 40, "night_start_hour": 20, "night_end_hour": 7},
+                }
+            },
+        }
+        import copy
+        expected = copy.deepcopy(zone_d["modifiers"]["nighttime"])
+        AutoFanConfig._migrate_zone(zone_d)
+        assert zone_d["modifiers"]["nighttime"] == expected
 
     def test_migrate_humidity_enabled(self, fake_indigo):
         from auto_fan.auto_fan_config import AutoFanConfig
@@ -493,9 +538,13 @@ class TestMigrateModifiers:
         AutoFanConfig._migrate_zone(zone_d)
         mods = zone_d["modifiers"]
 
-        # No 'enabled' keys remain
-        for mod in mods.values():
-            assert "enabled" not in mod
+        # No 'enabled' keys remain (nighttime is now per-season, check sub-dicts)
+        for key, mod in mods.items():
+            if key == "nighttime":
+                for season_mod in mod.values():
+                    assert "enabled" not in season_mod
+            else:
+                assert "enabled" not in mod
 
         # Cooling
         assert mods["hvac_cooling_active"]["speed_boost_pct"] == 20
@@ -505,9 +554,10 @@ class TestMigrateModifiers:
         assert mods["hvac_heating_active"]["speed_adjust_pct"] == -20
         assert mods["hvac_heating_active"]["clamp_min_pct"] == 10
 
-        # Nighttime
-        assert mods["nighttime"]["clamp_max_pct"] == 50
-        assert mods["nighttime"]["night_start_hour"] == 22
+        # Nighttime (per-season)
+        for season in ("spring", "summer", "fall", "winter"):
+            assert mods["nighttime"][season]["clamp_max_pct"] == 50
+            assert mods["nighttime"][season]["night_start_hour"] == 22
 
         # Humidity
         assert mods["humidity"]["speed_boost_pct"] == 20
@@ -525,6 +575,10 @@ class TestMigrateModifiers:
             "modifiers": {
                 "hvac_cooling_active": {"enabled": True, "speed_adjust_pct": 25},
                 "no_presence": {"enabled": False, "clamp_max_pct": 0},
+                "nighttime": {
+                    "enabled": True, "clamp_min_pct": 0, "clamp_max_pct": 50,
+                    "night_start_hour": 22, "night_end_hour": 8,
+                },
             },
         }
         AutoFanConfig._migrate_zone(zone_d)

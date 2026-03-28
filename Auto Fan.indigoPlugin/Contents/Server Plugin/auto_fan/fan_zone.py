@@ -3,7 +3,6 @@ from datetime import datetime, timedelta
 from typing import List, Optional, Tuple
 
 from .auto_fan_base import AutoFanBase
-from .hvac_mode import HvacMode, detect_hvac_mode
 from .seasons import SEASONS, get_current_season
 from .speed_curve import apply_modifiers, calculate_base_speed
 from .speed_plan import SpeedPlan
@@ -70,6 +69,7 @@ class FanZone(AutoFanBase):
         self.lock_expiration: Optional[datetime] = None
         self.lock_duration: int = -1  # -1 = use plugin default
         self.lock_extension_duration: int = -1
+        self._last_speed_command_time: Optional[datetime] = None
 
         # Zone state
         self.enabled: bool = True
@@ -90,8 +90,6 @@ class FanZone(AutoFanBase):
              "getter": lambda: self._target_speed_pct},
             {"key": "current_speed_pct", "label": "Current Speed %", "type": "number",
              "getter": lambda: self._get_current_speed_pct()},
-            {"key": "hvac_mode", "label": "HVAC Mode", "type": "string",
-             "getter": lambda: self.get_hvac_mode().value},
             {"key": "presence_detected", "label": "Presence Detected", "type": "boolean",
              "getter": lambda: self.has_presence_detected()},
             {"key": "zone_locked", "label": "Zone Locked", "type": "boolean",
@@ -164,6 +162,30 @@ class FanZone(AutoFanBase):
             return None
         return sum(temps) / len(temps)
 
+    def get_sensor_readings(self) -> List[Tuple[int, str, Optional[float]]]:
+        """Get individual temperature sensor readings.
+
+        Returns:
+            List of (dev_id, dev_name, reading_or_None) for each configured sensor.
+        """
+        readings = []
+        for dev_id in self.temp_sensor_dev_ids:
+            try:
+                dev = indigo.devices[dev_id]
+                name = dev.name
+                value = None
+                for key in ("sensorValue", "temperature", "temp", "Temperature"):
+                    if key in dev.states:
+                        try:
+                            value = float(dev.states[key])
+                            break
+                        except (ValueError, TypeError):
+                            continue
+                readings.append((dev_id, name, value))
+            except Exception:
+                readings.append((dev_id, f"Unknown (id:{dev_id})", None))
+        return readings
+
     def get_ideal_temperature(self) -> Optional[float]:
         """Get ideal temperature based on configured source."""
         if self.ideal_temp_source == "variable" and self.ideal_temp_var_id:
@@ -184,6 +206,46 @@ class FanZone(AutoFanBase):
                 return cool
             return self.ideal_temp_value
         return self.ideal_temp_value
+
+    def get_ideal_temperature_breakdown(self) -> List[Tuple[str, str]]:
+        """Explain how the ideal temperature was resolved.
+
+        Returns:
+            List of (emoji, message) tuples describing the resolution.
+        """
+        lines: List[Tuple[str, str]] = []
+        resolved = self.get_ideal_temperature()
+
+        if self.ideal_temp_source == "variable" and self.ideal_temp_var_id:
+            try:
+                var = indigo.variables[self.ideal_temp_var_id]
+                var_value = float(var.value)
+                lines.append(("🔢", f"Source: variable '{var.name}' (id:{var.id}) = {var_value:.1f}°F"))
+            except Exception:
+                lines.append(("⚠️", f"Source: variable (id:{self.ideal_temp_var_id}) — read failed, using fallback {self.ideal_temp_value:.1f}°F"))
+        elif self.ideal_temp_source == "thermostat":
+            heat = self.get_heat_setpoint()
+            cool = self.get_cool_setpoint()
+            tstat_name = "Unknown"
+            if self.thermostat_dev_id:
+                try:
+                    tstat_name = indigo.devices[self.thermostat_dev_id].name
+                except Exception:
+                    pass
+            lines.append(("🌡️", f"Source: thermostat '{tstat_name}' (id:{self.thermostat_dev_id})"))
+            if heat is not None and cool is not None:
+                lines.append(("", f"  Heat setpoint: {heat:.1f}°F, Cool setpoint: {cool:.1f}°F"))
+                lines.append(("", f"  Midpoint: ({heat:.1f} + {cool:.1f}) / 2 = {resolved:.1f}°F"))
+            elif heat is not None:
+                lines.append(("", f"  Heat setpoint only: {heat:.1f}°F"))
+            elif cool is not None:
+                lines.append(("", f"  Cool setpoint only: {cool:.1f}°F"))
+            else:
+                lines.append(("⚠️", f"  No setpoints available, using fallback {self.ideal_temp_value:.1f}°F"))
+        else:
+            lines.append(("📌", f"Source: static = {self.ideal_temp_value:.1f}°F"))
+
+        return lines
 
     def get_temperature_delta(self) -> Optional[float]:
         """Get delta: current - ideal. Positive = room warmer than ideal."""
@@ -299,15 +361,6 @@ class FanZone(AutoFanBase):
         state = self.get_hvac_state()
         return "heat" in state
 
-    def get_hvac_mode(self) -> HvacMode:
-        """Detect current HVAC mode from thermostat state."""
-        return detect_hvac_mode(
-            heat_setpoint=self.get_heat_setpoint(),
-            cool_setpoint=self.get_cool_setpoint(),
-            outdoor_temp=self.get_outdoor_temperature(),
-            ideal_temp=self.get_ideal_temperature(),
-        )
-
     # ---- Speed Calculation ----
 
     def _get_current_speed_pct(self) -> float:
@@ -364,12 +417,9 @@ class FanZone(AutoFanBase):
             is_hvac_heating=self.is_hvac_heating(),
             humidity=self.get_humidity(),
             has_presence=self.has_presence_detected(),
+            season=season,
         )
         plan.contributions.extend(modifier_contribs)
-
-        # HVAC mode for logging
-        hvac_mode = self.get_hvac_mode()
-        plan.contributions.append(("🏠", f"HVAC mode: {hvac_mode.value}"))
 
         plan.target_speed_pct = final_speed
         self._target_speed_pct = final_speed
@@ -398,6 +448,7 @@ class FanZone(AutoFanBase):
         """Apply the calculated target speed to the fan device."""
         if not self.fan_dev_id:
             return False
+        self._last_speed_command_time = datetime.now()
         return send_fan_speed(self.fan_dev_id, self._target_speed_pct, self.logger)
 
     # ---- Lock Management ----
@@ -468,6 +519,13 @@ class FanZone(AutoFanBase):
     def is_fan_device(self, dev_id: int) -> bool:
         """Check if a device ID is this zone's fan device."""
         return dev_id == self.fan_dev_id
+
+    def is_self_triggered_change(self, grace_seconds: int = 10) -> bool:
+        """Check if a fan speed change was likely caused by the plugin itself."""
+        if self._last_speed_command_time is None:
+            return False
+        elapsed = (datetime.now() - self._last_speed_command_time).total_seconds()
+        return elapsed < grace_seconds
 
     def has_variable(self, var_id: int) -> bool:
         """Check if a variable ID is relevant to this zone."""
