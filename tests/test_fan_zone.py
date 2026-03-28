@@ -233,6 +233,20 @@ class TestFanZoneLocking:
         zone.lock_duration = -1
         assert zone.get_effective_lock_duration() == 60  # plugin default
 
+    def test_self_triggered_change_within_grace(self, fake_indigo):
+        zone, config = self._make_zone()
+        zone._last_speed_command_time = datetime.now()
+        assert zone.is_self_triggered_change() is True
+
+    def test_self_triggered_change_after_grace(self, fake_indigo):
+        zone, config = self._make_zone()
+        zone._last_speed_command_time = datetime.now() - timedelta(seconds=15)
+        assert zone.is_self_triggered_change() is False
+
+    def test_self_triggered_change_no_command(self, fake_indigo):
+        zone, config = self._make_zone()
+        assert zone.is_self_triggered_change() is False
+
 
 class TestFanZoneSpeedCalc:
     """Tests for calculate_target_speed."""
@@ -394,21 +408,6 @@ class TestFanZoneHVAC:
         assert zone.is_hvac_heating() is True
         assert zone.is_hvac_cooling() is False
 
-    def test_get_hvac_mode_no_thermostat(self, fake_indigo):
-        from auto_fan.hvac_mode import HvacMode
-        zone, config = self._make_zone()
-        # No thermostat -> NEUTRAL
-        assert zone.get_hvac_mode() == HvacMode.NEUTRAL
-
-    def test_get_hvac_mode_with_thermostat(self, fake_indigo):
-        from auto_fan.hvac_mode import HvacMode
-        dev = Device(400, name="Thermostat", heatSetpoint=68.0, coolSetpoint=0)
-        fake_indigo.devices[400] = dev
-        zone, config = self._make_zone()
-        zone.thermostat_dev_id = 400
-        # heat > 50, cool <= 0 -> WINTER
-        assert zone.get_hvac_mode() == HvacMode.WINTER
-
 
 class TestFanZoneExtendLock:
     """Tests for extend_lock method."""
@@ -529,3 +528,126 @@ class TestConfigMigration:
         AutoFanConfig._migrate_zone(zone_d)
         assert zone_d["humidity_dev_ids"] == [400]
         assert zone_d["ideal_temp_source"] == "static"
+
+
+class TestGetSensorReadings:
+    """Tests for get_sensor_readings method."""
+
+    def _make_zone(self):
+        return TestFanZoneTemperature._make_zone(self)
+
+    def test_single_sensor(self, fake_indigo):
+        fake_indigo.devices[200] = Device(200, name="Temp Sensor", sensorValue=75.0)
+        fake_indigo.devices[200].states["sensorValue"] = 75.0
+
+        zone, config = self._make_zone()
+        readings = zone.get_sensor_readings()
+        assert len(readings) == 1
+        assert readings[0] == (200, "Temp Sensor", 75.0)
+
+    def test_multiple_sensors(self, fake_indigo):
+        fake_indigo.devices[200] = Device(200, name="Temp 1", sensorValue=74.0)
+        fake_indigo.devices[200].states["sensorValue"] = 74.0
+        fake_indigo.devices[201] = Device(201, name="Temp 2", sensorValue=76.0)
+        fake_indigo.devices[201].states["sensorValue"] = 76.0
+
+        zone, config = self._make_zone()
+        zone.temp_sensor_dev_ids = [200, 201]
+        readings = zone.get_sensor_readings()
+        assert len(readings) == 2
+        assert readings[0] == (200, "Temp 1", 74.0)
+        assert readings[1] == (201, "Temp 2", 76.0)
+
+    def test_no_sensors(self, fake_indigo):
+        zone, config = self._make_zone()
+        zone.temp_sensor_dev_ids = []
+        assert zone.get_sensor_readings() == []
+
+    def test_sensor_with_no_matching_state_key(self, fake_indigo):
+        dev = Device(200, name="Odd Sensor")
+        dev.states = {"unrelated_key": 42}
+        fake_indigo.devices[200] = dev
+
+        zone, config = self._make_zone()
+        readings = zone.get_sensor_readings()
+        assert len(readings) == 1
+        assert readings[0] == (200, "Odd Sensor", None)
+
+
+class TestIdealTemperatureBreakdown:
+    """Tests for get_ideal_temperature_breakdown method."""
+
+    def _make_zone(self):
+        return TestFanZoneTemperature._make_zone(self)
+
+    def test_static_source(self, fake_indigo):
+        zone, config = self._make_zone()
+        lines = zone.get_ideal_temperature_breakdown()
+        assert len(lines) == 1
+        emoji, msg = lines[0]
+        assert emoji == "📌"
+        assert "static" in msg.lower()
+        assert "72.0" in msg
+
+    def test_variable_source(self, fake_indigo):
+        fake_indigo.variables[500] = Variable(500, name="ideal_temp", value="70")
+
+        zone, config = self._make_zone()
+        zone.ideal_temp_source = "variable"
+        zone.ideal_temp_var_id = 500
+
+        lines = zone.get_ideal_temperature_breakdown()
+        assert len(lines) == 1
+        emoji, msg = lines[0]
+        assert emoji == "🔢"
+        assert "ideal_temp" in msg
+        assert "70.0" in msg
+
+    def test_variable_source_fallback(self, fake_indigo):
+        zone, config = self._make_zone()
+        zone.ideal_temp_source = "variable"
+        zone.ideal_temp_var_id = 999  # non-existent
+
+        lines = zone.get_ideal_temperature_breakdown()
+        assert len(lines) == 1
+        emoji, msg = lines[0]
+        assert emoji == "⚠️"
+        assert "fallback" in msg.lower()
+        assert "72.0" in msg
+
+    def test_thermostat_both_setpoints(self, fake_indigo):
+        fake_indigo.devices[400] = Device(400, name="Main HVAC", heatSetpoint=68.0, coolSetpoint=76.0)
+
+        zone, config = self._make_zone()
+        zone.ideal_temp_source = "thermostat"
+        zone.thermostat_dev_id = 400
+
+        lines = zone.get_ideal_temperature_breakdown()
+        # Should have: source line, setpoints line, midpoint line
+        assert len(lines) == 3
+        assert "Main HVAC" in lines[0][1]
+        assert "68.0" in lines[1][1]
+        assert "76.0" in lines[1][1]
+        assert "72.0" in lines[2][1]
+
+    def test_thermostat_heat_only(self, fake_indigo):
+        fake_indigo.devices[400] = Device(400, name="Heater", heatSetpoint=70.0)
+
+        zone, config = self._make_zone()
+        zone.ideal_temp_source = "thermostat"
+        zone.thermostat_dev_id = 400
+
+        lines = zone.get_ideal_temperature_breakdown()
+        assert len(lines) == 2
+        assert "heat setpoint only" in lines[1][1].lower()
+        assert "70.0" in lines[1][1]
+
+    def test_thermostat_no_setpoints_fallback(self, fake_indigo):
+        zone, config = self._make_zone()
+        zone.ideal_temp_source = "thermostat"
+        # No thermostat device configured
+
+        lines = zone.get_ideal_temperature_breakdown()
+        # Should have source line + fallback line
+        has_fallback = any("fallback" in msg.lower() for _, msg in lines)
+        assert has_fallback

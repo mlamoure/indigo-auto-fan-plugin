@@ -237,6 +237,9 @@ class Plugin(indigo.PluginBase):
     def print_locked_zones(self, action=None, dev=None, caller_waiting_for_result=None):
         self._agent.print_locked_zones()
 
+    def print_zone_breakdowns(self, action=None, dev=None, caller_waiting_for_result=None):
+        self._agent.print_zone_breakdowns()
+
     def change_zones_enabled(self, action, dev=None, caller_waiting_for_result=None):
         if self._agent is None:
             return

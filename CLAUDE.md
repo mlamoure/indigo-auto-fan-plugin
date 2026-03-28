@@ -57,7 +57,6 @@ Deploy to production Indigo server for testing:
 ```
 
 **REQUIREMENTS**:
-- Indigo Server must be mounted at `/Volumes/Perceptive Automation` (Claude cannot mount - user must do manually)
 - Network transfer takes significant time - consider running in background
 - Always restart plugin in Indigo after deployment
 
@@ -110,7 +109,7 @@ Two Indigo device types, both relay-based (on/off = enabled/disabled):
 - **`auto_fan_zone`** — One per zone. Turning off disables that zone's automation. Dynamic states come from `zone_field_schemas` plus runtime states defined in `FanZone.zone_indigo_device_runtime_states`:
   - `current_temperature`, `ideal_temperature`, `temperature_delta`
   - `target_speed_pct`, `current_speed_pct`
-  - `hvac_mode`, `presence_detected`
+  - `presence_detected`
   - `zone_locked`, `lock_expiration`
   - `humidity`, `outdoor_temperature`, `current_season`
 
@@ -135,7 +134,7 @@ Base speed from the curve is then passed through a **modifier stack** (order mat
 1. HVAC cooling boost (additive `speed_boost_pct`) + minimum speed clamp
 2. HVAC heating adjustment (additive `speed_adjust_pct`, supports +/-) + minimum speed clamp
 3. Humidity boost (flat `speed_boost_pct` when above `threshold`)
-4. Nighttime clamp (caps to `[clamp_min_pct, clamp_max_pct]` range)
+4. Nighttime clamp (per-season: caps to `[clamp_min_pct, clamp_max_pct]` range using season-specific hours)
 5. Away cap (caps to `clamp_max_pct` when global home/away variable indicates away)
 6. Final 0-100 clamp
 
@@ -143,7 +142,7 @@ Modifiers use **dropdown-based configuration** with 10% increments. There are no
 
 Additive modifiers run before clamps so that clamps cannot be circumvented by later adjustments.
 
-Migration: legacy `enabled` + numeric fields → dropdown integers. Old `speed_adjust_pct` (cooling) → `speed_boost_pct`. Humidity changed from proportional to flat boost. Values rounded to nearest valid dropdown increment.
+Migration: legacy `enabled` + numeric fields → dropdown integers. Old `speed_adjust_pct` (cooling) → `speed_boost_pct`. Humidity changed from proportional to flat boost. Values rounded to nearest valid dropdown increment. Nighttime: flat `nighttime` object → per-season `nighttime.{spring,summer,fall,winter}` (all four initialized from the flat values).
 
 ## Important Notes
 

@@ -113,14 +113,108 @@
                 </fieldset>
                 {% endif %}
 
-                {% if zone_form.modifiers.form.nighttime is defined %}
                 <fieldset class="group-box">
                     <legend>Nighttime Modifier</legend>
-                    {% for subfield in zone_form.modifiers.form.nighttime.form if subfield.name not in ['csrf_token', 'submit'] %}
-                        {{ render_field(subfield) }}
-                    {% endfor %}
+                    <input type="hidden" name="nighttime_json" id="nighttime-json">
+
+                    <div class="season-tabs" id="nighttime-season-tabs">
+                        <button type="button" class="season-tab nighttime-season-tab" data-season="spring">Spring</button>
+                        <button type="button" class="season-tab nighttime-season-tab" data-season="summer">Summer</button>
+                        <button type="button" class="season-tab nighttime-season-tab" data-season="fall">Fall</button>
+                        <button type="button" class="season-tab nighttime-season-tab" data-season="winter">Winter</button>
+                    </div>
+
+                    <div class="form-field">
+                        <label>Min Speed at Night</label>
+                        <select id="nighttime-clamp_min_pct">
+                            <option value="0">No Minimum</option>
+                            <option value="10">10%</option>
+                            <option value="20">20%</option>
+                            <option value="30">30%</option>
+                            <option value="40">40%</option>
+                            <option value="50">50%</option>
+                            <option value="60">60%</option>
+                            <option value="70">70%</option>
+                            <option value="80">80%</option>
+                            <option value="90">90%</option>
+                            <option value="100">100%</option>
+                        </select>
+                    </div>
+                    <div class="form-field">
+                        <label>Max Speed at Night</label>
+                        <select id="nighttime-clamp_max_pct">
+                            <option value="0">0%</option>
+                            <option value="10">10%</option>
+                            <option value="20">20%</option>
+                            <option value="30">30%</option>
+                            <option value="40">40%</option>
+                            <option value="50">50%</option>
+                            <option value="60">60%</option>
+                            <option value="70">70%</option>
+                            <option value="80">80%</option>
+                            <option value="90">90%</option>
+                            <option value="100" selected>No Maximum</option>
+                        </select>
+                    </div>
+                    <div class="form-field">
+                        <label>Night Start Hour</label>
+                        <select id="nighttime-night_start_hour">
+                            <option value="0">12:00 AM</option>
+                            <option value="1">1:00 AM</option>
+                            <option value="2">2:00 AM</option>
+                            <option value="3">3:00 AM</option>
+                            <option value="4">4:00 AM</option>
+                            <option value="5">5:00 AM</option>
+                            <option value="6">6:00 AM</option>
+                            <option value="7">7:00 AM</option>
+                            <option value="8">8:00 AM</option>
+                            <option value="9">9:00 AM</option>
+                            <option value="10">10:00 AM</option>
+                            <option value="11">11:00 AM</option>
+                            <option value="12">12:00 PM</option>
+                            <option value="13">1:00 PM</option>
+                            <option value="14">2:00 PM</option>
+                            <option value="15">3:00 PM</option>
+                            <option value="16">4:00 PM</option>
+                            <option value="17">5:00 PM</option>
+                            <option value="18">6:00 PM</option>
+                            <option value="19">7:00 PM</option>
+                            <option value="20">8:00 PM</option>
+                            <option value="21">9:00 PM</option>
+                            <option value="22" selected>10:00 PM</option>
+                            <option value="23">11:00 PM</option>
+                        </select>
+                    </div>
+                    <div class="form-field">
+                        <label>Night End Hour</label>
+                        <select id="nighttime-night_end_hour">
+                            <option value="0">12:00 AM</option>
+                            <option value="1">1:00 AM</option>
+                            <option value="2">2:00 AM</option>
+                            <option value="3">3:00 AM</option>
+                            <option value="4">4:00 AM</option>
+                            <option value="5">5:00 AM</option>
+                            <option value="6">6:00 AM</option>
+                            <option value="7">7:00 AM</option>
+                            <option value="8" selected>8:00 AM</option>
+                            <option value="9">9:00 AM</option>
+                            <option value="10">10:00 AM</option>
+                            <option value="11">11:00 AM</option>
+                            <option value="12">12:00 PM</option>
+                            <option value="13">1:00 PM</option>
+                            <option value="14">2:00 PM</option>
+                            <option value="15">3:00 PM</option>
+                            <option value="16">4:00 PM</option>
+                            <option value="17">5:00 PM</option>
+                            <option value="18">6:00 PM</option>
+                            <option value="19">7:00 PM</option>
+                            <option value="20">8:00 PM</option>
+                            <option value="21">9:00 PM</option>
+                            <option value="22">10:00 PM</option>
+                            <option value="23">11:00 PM</option>
+                        </select>
+                    </div>
                 </fieldset>
-                {% endif %}
 
                 {% if zone_form.modifiers.form.humidity is defined %}
                 <fieldset class="group-box">
@@ -144,22 +238,92 @@
 
             <script>
             document.addEventListener('DOMContentLoaded', function() {
-                // Nighttime modifier: disable hours when min=0 AND max=100 (neutral/disabled)
-                var nightMin = document.querySelector('select[name="modifiers-nighttime-clamp_min_pct"]');
-                var nightMax = document.querySelector('select[name="modifiers-nighttime-clamp_max_pct"]');
-                var nightStart = document.querySelector('select[name="modifiers-nighttime-night_start_hour"]');
-                var nightEnd = document.querySelector('select[name="modifiers-nighttime-night_end_hour"]');
+                // --- Nighttime modifier: per-season with tab switching ---
+                var nightDefaults = {clamp_min_pct: 0, clamp_max_pct: 100, night_start_hour: 22, night_end_hour: 8};
+                var savedNighttime = {{ zone.get('modifiers', {}).get('nighttime', {}) | tojson }};
+                var nightSeasons = ['spring', 'summer', 'fall', 'winter'];
 
-                function updateNighttimeHours() {
-                    if (!nightMin || !nightMax || !nightStart || !nightEnd) return;
-                    var isNeutral = (parseInt(nightMin.value) === 0 && parseInt(nightMax.value) === 100);
-                    nightStart.disabled = isNeutral;
-                    nightEnd.disabled = isNeutral;
+                // Determine current season
+                var nightMonth = new Date().getMonth() + 1;
+                var nightCurrentSeason;
+                if (nightMonth >= 3 && nightMonth <= 5) nightCurrentSeason = 'spring';
+                else if (nightMonth >= 6 && nightMonth <= 8) nightCurrentSeason = 'summer';
+                else if (nightMonth >= 9 && nightMonth <= 11) nightCurrentSeason = 'fall';
+                else nightCurrentSeason = 'winter';
+
+                // Initialize per-season state
+                var nightState = {};
+                for (var i = 0; i < nightSeasons.length; i++) {
+                    var key = nightSeasons[i];
+                    var saved = savedNighttime[key];
+                    nightState[key] = {
+                        clamp_min_pct: (saved && saved.clamp_min_pct !== undefined) ? saved.clamp_min_pct : nightDefaults.clamp_min_pct,
+                        clamp_max_pct: (saved && saved.clamp_max_pct !== undefined) ? saved.clamp_max_pct : nightDefaults.clamp_max_pct,
+                        night_start_hour: (saved && saved.night_start_hour !== undefined) ? saved.night_start_hour : nightDefaults.night_start_hour,
+                        night_end_hour: (saved && saved.night_end_hour !== undefined) ? saved.night_end_hour : nightDefaults.night_end_hour
+                    };
+                }
+                window._nighttimeState = nightState;
+                window._nighttimeActiveSeason = nightCurrentSeason;
+
+                var nightMinSel = document.getElementById('nighttime-clamp_min_pct');
+                var nightMaxSel = document.getElementById('nighttime-clamp_max_pct');
+                var nightStartSel = document.getElementById('nighttime-night_start_hour');
+                var nightEndSel = document.getElementById('nighttime-night_end_hour');
+
+                function loadNighttimeSeason(season) {
+                    var s = nightState[season];
+                    nightMinSel.value = s.clamp_min_pct;
+                    nightMaxSel.value = s.clamp_max_pct;
+                    nightStartSel.value = s.night_start_hour;
+                    nightEndSel.value = s.night_end_hour;
+                    updateNighttimeHours();
                 }
 
-                if (nightMin) nightMin.addEventListener('change', updateNighttimeHours);
-                if (nightMax) nightMax.addEventListener('change', updateNighttimeHours);
-                updateNighttimeHours();
+                function saveNighttimeSeason(season) {
+                    nightState[season] = {
+                        clamp_min_pct: parseInt(nightMinSel.value),
+                        clamp_max_pct: parseInt(nightMaxSel.value),
+                        night_start_hour: parseInt(nightStartSel.value),
+                        night_end_hour: parseInt(nightEndSel.value)
+                    };
+                }
+
+                function switchNighttimeSeason(newSeason) {
+                    saveNighttimeSeason(window._nighttimeActiveSeason);
+                    window._nighttimeActiveSeason = newSeason;
+                    loadNighttimeSeason(newSeason);
+                    document.querySelectorAll('.nighttime-season-tab').forEach(function(btn) {
+                        btn.classList.toggle('active', btn.getAttribute('data-season') === newSeason);
+                    });
+                }
+
+                document.querySelectorAll('.nighttime-season-tab').forEach(function(btn) {
+                    btn.addEventListener('click', function() {
+                        switchNighttimeSeason(this.getAttribute('data-season'));
+                    });
+                    btn.classList.toggle('active', btn.getAttribute('data-season') === nightCurrentSeason);
+                });
+
+                // Disable hours when min=0 AND max=100 (neutral/disabled)
+                function updateNighttimeHours() {
+                    var isNeutral = (parseInt(nightMinSel.value) === 0 && parseInt(nightMaxSel.value) === 100);
+                    nightStartSel.disabled = isNeutral;
+                    nightEndSel.disabled = isNeutral;
+                }
+
+                nightMinSel.addEventListener('change', updateNighttimeHours);
+                nightMaxSel.addEventListener('change', updateNighttimeHours);
+
+                // Load initial season
+                loadNighttimeSeason(nightCurrentSeason);
+
+                // Serialize nighttime state into hidden field
+                window._serializeNighttime = function() {
+                    saveNighttimeSeason(window._nighttimeActiveSeason);
+                    var el = document.getElementById('nighttime-json');
+                    if (el) el.value = JSON.stringify(window._nighttimeState);
+                };
 
                 // Humidity modifier: disable threshold when boost=0 (no boost)
                 var humBoost = document.querySelector('select[name="modifiers-humidity-speed_boost_pct"]');
@@ -216,6 +380,7 @@
                 }
               });
               serializeFanCurve();
+              if (window._serializeNighttime) window._serializeNighttime();
             });
           }
         });

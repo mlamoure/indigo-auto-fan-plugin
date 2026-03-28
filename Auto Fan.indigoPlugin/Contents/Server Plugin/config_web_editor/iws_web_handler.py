@@ -436,6 +436,16 @@ class IWSWebHandler:
                     pass
             zone_data.pop("fan_curve", None)
 
+            # Process nighttime modifier from hidden JSON field (per-season)
+            nighttime_json = body_params.get("nighttime_json", "")
+            if nighttime_json:
+                try:
+                    if "modifiers" not in zone_data:
+                        zone_data["modifiers"] = {}
+                    zone_data["modifiers"]["nighttime"] = json.loads(nighttime_json)
+                except (json.JSONDecodeError, TypeError):
+                    pass
+
             # Validate required fields
             if not zone_data.get("temp_sensor_dev_ids"):
                 flash["error"] = "At least one temperature sensor is required"
