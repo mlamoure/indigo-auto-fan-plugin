@@ -117,8 +117,8 @@ Two Indigo device types, both relay-based (on/off = enabled/disabled):
 ### Zone Device Fields
 
 - **`fan_dev_id`** — Single select: SpeedControl, Dimmer, or Relay devices
-- **`temp_sensor_dev_ids`** — Multi-select: SensorDevice (averaged if multiple)
-- **`presence_dev_ids`** — Multi-select: SensorDevice (OR logic — any = present)
+- **`temp_sensor_dev_ids`** — Multi-select: SensorDevice (averaged if multiple). **Required** — at least one needed for offset calculation.
+- **`presence_dev_ids`** — Multi-select: SensorDevice (OR logic — any = present). Optional — when omitted, presence is assumed and fans run based on temperature alone.
 - **`thermostat_dev_id`** — Single select: ThermostatDevice
 - **`humidity_dev_ids`** — Multi-select: SensorDevice (averaged if multiple)
 - **`ideal_temp_source`** — Enum: `"static"` (fixed value), `"variable"` (Indigo variable), `"thermostat"` (uses heat/cool setpoints, or their average when both exist)

@@ -26,7 +26,7 @@
             <input type="hidden" name="indigo_dev_id" value="{{ zone_form.indigo_dev_id.data or '' }}">
             {% endif %}
 
-            {% for field in zone_form if field.name not in ['submit', 'csrf_token', 'fan_curve', 'seasonal_curves', 'speed_curves', 'modifiers', 'global_behavior_variables_map', 'enabled', 'indigo_dev_id', 'zone_index', 'ideal_temp_value', 'ideal_temp_var_id', 'ideal_temp_source'] %}
+            {% for field in zone_form if field.name not in ['submit', 'csrf_token', 'fan_curve', 'seasonal_curves', 'speed_curves', 'modifiers', 'global_behavior_variables_map', 'enabled', 'indigo_dev_id', 'zone_index', 'ideal_temp_value', 'ideal_temp_var_id', 'ideal_temp_source', 'lock_duration', 'lock_extension_duration'] %}
             {{ render_field(field) }}
             {% endfor %}
 
@@ -142,6 +142,50 @@
             </fieldset>
             {% endif %}
 
+            <script>
+            document.addEventListener('DOMContentLoaded', function() {
+                // Nighttime modifier: disable hours when min=0 AND max=100 (neutral/disabled)
+                var nightMin = document.querySelector('select[name="modifiers-nighttime-clamp_min_pct"]');
+                var nightMax = document.querySelector('select[name="modifiers-nighttime-clamp_max_pct"]');
+                var nightStart = document.querySelector('select[name="modifiers-nighttime-night_start_hour"]');
+                var nightEnd = document.querySelector('select[name="modifiers-nighttime-night_end_hour"]');
+
+                function updateNighttimeHours() {
+                    if (!nightMin || !nightMax || !nightStart || !nightEnd) return;
+                    var isNeutral = (parseInt(nightMin.value) === 0 && parseInt(nightMax.value) === 100);
+                    nightStart.disabled = isNeutral;
+                    nightEnd.disabled = isNeutral;
+                }
+
+                if (nightMin) nightMin.addEventListener('change', updateNighttimeHours);
+                if (nightMax) nightMax.addEventListener('change', updateNighttimeHours);
+                updateNighttimeHours();
+
+                // Humidity modifier: disable threshold when boost=0 (no boost)
+                var humBoost = document.querySelector('select[name="modifiers-humidity-speed_boost_pct"]');
+                var humThreshold = document.querySelector('select[name="modifiers-humidity-threshold"]');
+
+                function updateHumidityThreshold() {
+                    if (!humBoost || !humThreshold) return;
+                    humThreshold.disabled = (parseInt(humBoost.value) === 0);
+                }
+
+                if (humBoost) humBoost.addEventListener('change', updateHumidityThreshold);
+                updateHumidityThreshold();
+            });
+            </script>
+
+            {# Lock Behavior Section #}
+            {% if zone_form.lock_duration is defined %}
+            <fieldset class="group-box">
+                <legend>Lock Behavior</legend>
+                {{ render_field(zone_form.lock_duration) }}
+                {% if zone_form.lock_extension_duration is defined %}
+                {{ render_field(zone_form.lock_extension_duration) }}
+                {% endif %}
+            </fieldset>
+            {% endif %}
+
             {# Global Behavior Variables Map #}
             {% if zone_form.global_behavior_variables_map is defined %}
                 {{ render_field(zone_form.global_behavior_variables_map) }}
@@ -160,6 +204,10 @@
           var zoneForm = document.getElementById('zone-config-form');
           if (zoneForm) {
             zoneForm.addEventListener('submit', function() {
+              // Re-enable disabled fields so their values are included in submission
+              document.querySelectorAll('#zone-config-form select:disabled').forEach(function(sel) {
+                sel.disabled = false;
+              });
               document.querySelectorAll('select[multiple]').forEach(function(select) {
                 if (select.id.endsWith('_selected')) {
                   for (var i = 0; i < select.options.length; i++) {

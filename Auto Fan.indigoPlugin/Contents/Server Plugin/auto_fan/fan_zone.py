@@ -75,6 +75,7 @@ class FanZone(AutoFanBase):
         self.enabled: bool = True
         self.zone_index: int = 0
         self._indigo_dev_id: Optional[int] = None
+        self._indigo_dev_create_failed: bool = False
         self._target_speed_pct: float = 0.0
 
         # Runtime state definitions for Indigo device
@@ -479,6 +480,8 @@ class FanZone(AutoFanBase):
     @property
     def indigo_dev(self):
         """Retrieve or create the Indigo device for this zone."""
+        if self._indigo_dev_create_failed:
+            return None
         if self._indigo_dev_id is not None:
             try:
                 return indigo.devices[self._indigo_dev_id]
@@ -496,10 +499,11 @@ class FanZone(AutoFanBase):
                 return d
 
         # Create new device
+        expected_name = f"Auto Fan - {self.name}"
         try:
             dev = indigo.device.create(
                 protocol=indigo.kProtocol.Plugin,
-                name=f"Auto Fan - {self.name}",
+                name=expected_name,
                 address="",
                 deviceTypeId="auto_fan_zone",
                 props={"zone_index": str(self.zone_index)},
@@ -511,6 +515,22 @@ class FanZone(AutoFanBase):
             )
             return dev
         except Exception as e:
+            # If name already exists, adopt the existing device
+            for d in indigo.devices:
+                if (
+                    d.pluginId == "com.vtmikel.autofan"
+                    and d.deviceTypeId == "auto_fan_zone"
+                    and d.name == expected_name
+                ):
+                    self._indigo_dev_id = d.id
+                    props = d.pluginProps
+                    props["zone_index"] = str(self.zone_index)
+                    d.replacePluginPropsOnServer(props)
+                    self.logger.info(
+                        f"🔗 Adopted existing device '{d.name}' (id: {d.id}) for zone '{self.name}'"
+                    )
+                    return d
+            self._indigo_dev_create_failed = True
             self.logger.error(f"Error creating zone device for '{self.name}': {e}")
             return None
 

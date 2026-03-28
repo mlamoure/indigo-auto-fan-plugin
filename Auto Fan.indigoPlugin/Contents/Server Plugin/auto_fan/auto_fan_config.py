@@ -117,7 +117,7 @@ def _migrate_modifiers(zone_d: dict) -> None:
     if "enabled" in night:
         if night.pop("enabled"):
             night["clamp_min_pct"] = _round_to_nearest(night.get("clamp_min_pct", 0), 10)
-            night["clamp_max_pct"] = _round_to_nearest(night.get("clamp_max_pct", 50), 10)
+            night["clamp_max_pct"] = _round_to_nearest(night.get("clamp_max_pct", 100), 10)
         else:
             night["clamp_min_pct"] = 0
             night["clamp_max_pct"] = 100  # Effectively disabled

@@ -436,6 +436,11 @@ class IWSWebHandler:
                     pass
             zone_data.pop("fan_curve", None)
 
+            # Validate required fields
+            if not zone_data.get("temp_sensor_dev_ids"):
+                flash["error"] = "At least one temperature sensor is required"
+                return self._render_zone_edit(zone_id, flash)
+
             # Save based on new or existing
             if zone_id == "new":
                 zones_data.append(zone_data)
@@ -689,6 +694,23 @@ class IWSWebHandler:
             logger.exception(f"Error rendering zones page: {e}")
             return self._error_response(500, f"Error rendering zones: {str(e)}")
 
+    @staticmethod
+    def _extract_schema_defaults(schema: dict) -> dict:
+        """Recursively extract default values from a JSON schema.
+
+        For 'object' type schemas, walks into nested properties.
+        For leaf fields, returns the 'default' value if present.
+        """
+        defaults = {}
+        for prop, subschema in schema.get("properties", {}).items():
+            if subschema.get("type") == "object":
+                nested = IWSWebHandler._extract_schema_defaults(subschema)
+                if nested:
+                    defaults[prop] = nested
+            elif "default" in subschema:
+                defaults[prop] = subschema["default"]
+        return defaults
+
     def _render_zone_edit(self, zone_id: str, flash: Optional[Dict[str, Optional[str]]] = None) -> Dict[str, Any]:
         """Render the zone edit page."""
         try:
@@ -699,12 +721,8 @@ class IWSWebHandler:
 
             # Determine if creating new or editing existing
             if zone_id == "new":
-                # Create new zone with defaults
-                defaults = {}
-                for field, subschema in zone_schema.get("properties", {}).items():
-                    if "default" in subschema:
-                        defaults[field] = subschema["default"]
-                zone = defaults
+                # Create new zone with defaults (recursive to pick up nested modifier defaults)
+                zone = self._extract_schema_defaults(zone_schema)
                 is_new = True
             else:
                 # Load existing zone
