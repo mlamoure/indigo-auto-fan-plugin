@@ -79,28 +79,6 @@
                     });
             });
 
-            document.querySelectorAll('.refresh-var-list-btn').forEach(function (btn) {
-                btn.addEventListener('click', function () {
-                    var fieldName = btn.getAttribute('data-field-name');
-                    fetch('{{ url_for('refresh_variables') }}')
-                        .then(response => response.json())
-                        .then(data => {
-                            var fieldSelect = document.querySelector('select[name="' + fieldName + '"]');
-                            if (fieldSelect) {
-                                fieldSelect.options.length = 0;
-                                data.variables.forEach(function (variable) {
-                                    var option = document.createElement('option');
-                                    option.value = variable.id;
-                                    option.text = variable.name;
-                                    fieldSelect.appendChild(option);
-                                });
-                            }
-                        })
-                        .catch(err => {
-                            alert('Error refreshing variable list');
-                        });
-                });
-            });
         });
     </script>
     <script>
