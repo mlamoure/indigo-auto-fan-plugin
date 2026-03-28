@@ -76,7 +76,7 @@ def apply_modifiers(
     is_hvac_cooling: bool,
     is_hvac_heating: bool,
     humidity: Optional[float],
-    has_presence: bool,
+    is_home: bool,
     season: str = "summer",
 ) -> Tuple[float, List[Tuple[str, str]]]:
     """
@@ -87,7 +87,7 @@ def apply_modifiers(
     2. HVAC heating active: additive adjustment (+ or -) + min clamp
     3. Humidity: flat boost when above threshold
     4. Nighttime: clamp to range
-    5. No presence: cap speed
+    5. Away: cap speed when not home
     6. Final clamp to 0-100
 
     Modifiers are implicitly disabled when their primary value is at the
@@ -99,7 +99,7 @@ def apply_modifiers(
         is_hvac_cooling: Whether HVAC is actively cooling.
         is_hvac_heating: Whether HVAC is actively heating.
         humidity: Current humidity percentage (None if unavailable).
-        has_presence: Whether presence is detected in the zone.
+        is_home: Whether someone is home (from global away variable).
 
     Returns:
         Tuple of (final_speed_pct, list of (emoji, reason) contributions).
@@ -166,15 +166,15 @@ def apply_modifiers(
                     ("🌙", f"Nighttime clamp: [{clamp_min}-{clamp_max}%]")
                 )
 
-    # 5. No presence cap
+    # 5. Away cap
     # clamp_max_pct=100 implicitly disables (no cap).
-    no_pres = modifiers.get("no_presence", {})
-    cap = no_pres.get("clamp_max_pct", 100)
-    if not has_presence and cap < 100:
+    away_mod = modifiers.get("away", {})
+    cap = away_mod.get("clamp_max_pct", 100)
+    if not is_home and cap < 100:
         old_speed = speed
         speed = min(speed, cap)
         if speed != old_speed:
-            contributions.append(("👤", f"No presence: capped at {cap}%"))
+            contributions.append(("🏠", f"Away: capped at {cap}%"))
 
     # 6. Final clamp
     speed = max(0.0, min(100.0, speed))

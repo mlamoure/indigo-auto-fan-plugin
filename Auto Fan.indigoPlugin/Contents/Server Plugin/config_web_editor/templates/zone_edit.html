@@ -225,10 +225,10 @@
                 </fieldset>
                 {% endif %}
 
-                {% if zone_form.modifiers.form.no_presence is defined %}
+                {% if zone_form.modifiers.form.away is defined %}
                 <fieldset class="group-box">
-                    <legend>No Presence Modifier</legend>
-                    {% for subfield in zone_form.modifiers.form.no_presence.form if subfield.name not in ['csrf_token', 'submit'] %}
+                    <legend>Away Modifier</legend>
+                    {% for subfield in zone_form.modifiers.form.away.form if subfield.name not in ['csrf_token', 'submit'] %}
                         {{ render_field(subfield) }}
                     {% endfor %}
                 </fieldset>

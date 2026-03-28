@@ -416,7 +416,7 @@ class FanZone(AutoFanBase):
             is_hvac_cooling=self.is_hvac_cooling(),
             is_hvac_heating=self.is_hvac_heating(),
             humidity=self.get_humidity(),
-            has_presence=self.has_presence_detected(),
+            is_home=self._config.is_home(),
             season=season,
         )
         plan.contributions.extend(modifier_contribs)

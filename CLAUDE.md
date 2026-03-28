@@ -135,7 +135,7 @@ Base speed from the curve is then passed through a **modifier stack** (order mat
 2. HVAC heating adjustment (additive `speed_adjust_pct`, supports +/-) + minimum speed clamp
 3. Humidity boost (flat `speed_boost_pct` when above `threshold`)
 4. Nighttime clamp (per-season: caps to `[clamp_min_pct, clamp_max_pct]` range using season-specific hours)
-5. No-presence cap (caps to `clamp_max_pct`)
+5. Away cap (caps to `clamp_max_pct` when global home/away variable indicates away)
 6. Final 0-100 clamp
 
 Modifiers use **dropdown-based configuration** with 10% increments. There are no explicit "enabled" flags — modifiers are implicitly disabled at their neutral values (e.g., `speed_boost_pct=0`, `clamp_max_pct=100`). Schema uses `x-enum-labels` for human-friendly dropdown labels.

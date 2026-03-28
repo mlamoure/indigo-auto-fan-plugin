@@ -205,19 +205,19 @@ class TestApplyModifiers:
         assert speed == 50.0
         assert contribs == []
 
-    def test_no_presence_caps_speed(self):
-        mods = {"no_presence": {"clamp_max_pct": 0}}
+    def test_away_caps_speed(self):
+        mods = {"away": {"clamp_max_pct": 0}}
         speed, contribs = apply_modifiers(75.0, mods, False, False, None, False)
         assert speed == 0.0
 
-    def test_no_presence_not_triggered_when_present(self):
-        mods = {"no_presence": {"clamp_max_pct": 0}}
+    def test_away_not_triggered_when_home(self):
+        mods = {"away": {"clamp_max_pct": 0}}
         speed, contribs = apply_modifiers(75.0, mods, False, False, None, True)
         assert speed == 75.0
 
-    def test_no_presence_effectively_disabled(self):
+    def test_away_effectively_disabled(self):
         """clamp_max_pct=100 means no cap (implicitly disabled)."""
-        mods = {"no_presence": {"clamp_max_pct": 100}}
+        mods = {"away": {"clamp_max_pct": 100}}
         speed, contribs = apply_modifiers(75.0, mods, False, False, None, False)
         assert speed == 75.0
         assert contribs == []
@@ -276,11 +276,11 @@ class TestApplyModifiers:
         assert speed == 80.0  # 50 + 10 + 20
         assert len(contribs) == 2
 
-    def test_nighttime_and_no_presence_stacking(self):
-        """Nighttime clamp applied before no_presence cap."""
+    def test_nighttime_and_away_stacking(self):
+        """Nighttime clamp applied before away cap."""
         mods = {
             "nighttime": {"winter": {"clamp_min_pct": 10, "clamp_max_pct": 50, "night_start_hour": 22, "night_end_hour": 8}},
-            "no_presence": {"clamp_max_pct": 20},
+            "away": {"clamp_max_pct": 20},
         }
         with patch("auto_fan.speed_curve.datetime") as mock_dt:
             mock_dt.now.return_value = datetime(2026, 1, 15, 23, 0, 0)
@@ -296,7 +296,7 @@ class TestApplyModifiers:
             "hvac_heating_active": {"speed_adjust_pct": 10, "clamp_min_pct": 0},
             "humidity": {"threshold": 60, "speed_boost_pct": 10},
             "nighttime": {"winter": {"clamp_min_pct": 0, "clamp_max_pct": 75, "night_start_hour": 22, "night_end_hour": 8}},
-            "no_presence": {"clamp_max_pct": 60},
+            "away": {"clamp_max_pct": 60},
         }
         with patch("auto_fan.speed_curve.datetime") as mock_dt:
             mock_dt.now.return_value = datetime(2026, 1, 15, 23, 0, 0)

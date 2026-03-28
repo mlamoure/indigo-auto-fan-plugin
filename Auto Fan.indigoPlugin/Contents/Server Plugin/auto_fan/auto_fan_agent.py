@@ -290,7 +290,7 @@ class AutoFanAgent(AutoFanBase):
             is_hvac_cooling=zone.is_hvac_cooling(),
             is_hvac_heating=zone.is_hvac_heating(),
             humidity=zone.get_humidity(),
-            has_presence=zone.has_presence_detected(),
+            is_home=self.config.is_home(),
             season=season,
         )
         if modifier_contribs:
