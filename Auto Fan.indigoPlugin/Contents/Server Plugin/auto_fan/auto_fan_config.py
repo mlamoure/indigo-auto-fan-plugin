@@ -143,6 +143,10 @@ def _migrate_modifiers(zone_d: dict) -> None:
         else:
             no_pres["clamp_max_pct"] = 100  # Effectively disabled
 
+    # no_presence → away (rename)
+    if "no_presence" in mods and "away" not in mods:
+        mods["away"] = mods.pop("no_presence")
+
 
 class AutoFanConfig(AutoFanBase):
     """
@@ -176,6 +180,8 @@ class AutoFanConfig(AutoFanBase):
         self._default_lock_duration = 60
         self._default_lock_extension_duration = 30
         self._weather_dev_id = None
+        self._away_var_id = None
+        self._away_var_home_value = "true"
 
         self._zones = []
         self._config_file = config
@@ -244,6 +250,36 @@ class AutoFanConfig(AutoFanBase):
     @weather_dev_id.setter
     def weather_dev_id(self, value: int) -> None:
         self._weather_dev_id = value
+
+    @property
+    def away_var_id(self):
+        return self._away_var_id
+
+    @away_var_id.setter
+    def away_var_id(self, value) -> None:
+        self._away_var_id = value
+
+    @property
+    def away_var_home_value(self) -> str:
+        return self._away_var_home_value
+
+    @away_var_home_value.setter
+    def away_var_home_value(self, value: str) -> None:
+        self._away_var_home_value = value
+
+    def is_home(self) -> bool:
+        """Check if someone is home based on the configured away variable.
+
+        Returns True (home) when no variable is configured.
+        """
+        if not self._away_var_id:
+            return True
+        try:
+            var_value = str(indigo.variables[self._away_var_id].value).lower()
+            home_value = self._away_var_home_value.lower()
+            return var_value == home_value
+        except Exception:
+            return True
 
     def load_config(self) -> None:
         with open(self._config_file, "r", encoding="utf-8") as f:
