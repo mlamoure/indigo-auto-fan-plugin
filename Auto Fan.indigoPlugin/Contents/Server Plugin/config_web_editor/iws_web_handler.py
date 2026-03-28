@@ -241,7 +241,6 @@ class IWSWebHandler:
             'config_backup': 'config_backup',
             'zone_delete': f"zone/delete/{kwargs.get('zone_id', '')}",
             'create_new_variable': 'create_new_variable',
-            'refresh_variables': 'refresh_variables',
         }
 
         page = page_map.get(endpoint, endpoint)
@@ -347,8 +346,6 @@ class IWSWebHandler:
             return self._post_config_backup(body_params)
         elif page == 'create_new_variable':
             return self._post_create_variable(body_params)
-        elif page == 'refresh_variables':
-            return self._post_refresh_variables()
         else:
             return self._error_response(404, f"Unknown POST endpoint: {page}")
 
@@ -626,23 +623,6 @@ class IWSWebHandler:
             reply["content"] = json.dumps({"error": str(e)})
             return reply
 
-    def _post_refresh_variables(self) -> Dict[str, Any]:
-        """Handle refresh variables API endpoint."""
-        try:
-            variables = self.config_editor.get_cached_indigo_variables()
-            reply = create_reply_dict()
-            reply["status"] = 200
-            reply["headers"] = create_headers_dict({"Content-Type": "application/json"})
-            reply["content"] = json.dumps(variables)
-            return reply
-        except Exception as e:
-            logger.exception(f"Error refreshing variables: {e}")
-            reply = create_reply_dict()
-            reply["status"] = 500
-            reply["headers"] = create_headers_dict({"Content-Type": "application/json"})
-            reply["content"] = json.dumps({"error": str(e)})
-            return reply
-
     def _render_index(self, flash: Optional[Dict[str, Optional[str]]] = None) -> Dict[str, Any]:
         """Render the index/home page."""
         try:
@@ -853,6 +833,16 @@ class IWSWebHandler:
                     plugin_form.weather_dev_id.choices = device_choices
             except Exception as e:
                 logger.warning(f"Could not update device choices: {e}")
+
+            # Update variable dropdowns
+            try:
+                variables = self.config_editor.get_cached_indigo_variables()
+                var_choices = [(-1, "None Selected")] + [(v["id"], v["name"]) for v in variables]
+                for field_name, field in plugin_form._fields.items():
+                    if field_name.endswith("_var_id") and hasattr(field, 'choices'):
+                        field.choices = var_choices
+            except Exception as e:
+                logger.warning(f"Could not update variable choices: {e}")
 
             template = self.jinja_env.get_template('plugin_edit.html')
             html = template.render(plugin_form=plugin_form, flash=flash or {})
