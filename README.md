@@ -2,6 +2,8 @@
 
 Automatic fan speed control for [Indigo 2025.1](https://www.indigodomo.com/).
 
+This plugin creates zones for each area where you have a ceiling fan controlled by Indigo, and uses sensor data to dynamically set the fan speed based on the current conditions. The idea is inspired by "smart" fans that adjust speed according to temperature, but this plugin allows for a much more granular level of control because it aggregates data from all of the sensors linked in Indigo.
+
 ## Features
 
 ### Automatic Fan Speed
