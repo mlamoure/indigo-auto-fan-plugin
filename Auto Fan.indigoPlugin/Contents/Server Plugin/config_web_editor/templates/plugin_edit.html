@@ -37,6 +37,26 @@
     </div>
     <script>
         document.addEventListener('DOMContentLoaded', function () {
+            // Season detection: conditional field visibility
+            var seasonMode = document.querySelector('select[name="season_detection_mode"]');
+            if (seasonMode) {
+                function updateSeasonFields() {
+                    var mode = seasonMode.value;
+                    var hemisphereField = document.querySelector('select[name="hemisphere"]');
+                    var varField = document.querySelector('select[name="season_var_id"]');
+                    if (hemisphereField) {
+                        var hWrap = hemisphereField.closest('.form-field');
+                        if (hWrap) hWrap.style.display = (mode === 'automatic') ? '' : 'none';
+                    }
+                    if (varField) {
+                        var vWrap = varField.closest('.form-field');
+                        if (vWrap) vWrap.style.display = (mode === 'variable') ? '' : 'none';
+                    }
+                }
+                seasonMode.addEventListener('change', updateSeasonFields);
+                updateSeasonFields();
+            }
+
             var currentFieldName = '';
             document.querySelectorAll('.create-new-var-btn').forEach(function (btn) {
                 btn.addEventListener('click', function () {

@@ -26,28 +26,53 @@
             <input type="hidden" name="indigo_dev_id" value="{{ zone_form.indigo_dev_id.data or '' }}">
             {% endif %}
 
-            {% for field in zone_form if field.name not in ['submit', 'csrf_token', 'fan_curve', 'seasonal_curves', 'speed_curves', 'modifiers', 'global_behavior_variables_map', 'enabled', 'indigo_dev_id', 'zone_index', 'ideal_temp_value', 'ideal_temp_var_id', 'ideal_temp_source', 'lock_duration', 'lock_extension_duration'] %}
+            {% for field in zone_form if field.name not in ['submit', 'csrf_token', 'fan_curve', 'seasonal_curves', 'seasonal_ideal_temp', 'speed_curves', 'modifiers', 'global_behavior_variables_map', 'enabled', 'indigo_dev_id', 'zone_index', 'ideal_temp_value', 'ideal_temp_var_id', 'ideal_temp_source', 'lock_duration', 'lock_extension_duration'] %}
             {{ render_field(field) }}
             {% endfor %}
 
-            {# Ideal Temperature Section #}
-            {% if zone_form.ideal_temp_source is defined %}
+            {# Ideal Temperature Section (per-season) #}
             <fieldset class="group-box">
                 <legend>Ideal Temperature</legend>
-                {{ render_field(zone_form.ideal_temp_source) }}
-                <div id="ideal-temp-static" style="{% if zone_form.ideal_temp_source.data != 'static' %}display:none;{% endif %}">
-                    {{ render_field(zone_form.ideal_temp_value) }}
+                <input type="hidden" name="seasonal_ideal_temp_json" id="seasonal-ideal-temp-json">
+
+                <div class="season-tabs" id="ideal-temp-season-tabs">
+                    <button type="button" class="season-tab ideal-temp-season-tab" data-season="spring">Spring</button>
+                    <button type="button" class="season-tab ideal-temp-season-tab" data-season="summer">Summer</button>
+                    <button type="button" class="season-tab ideal-temp-season-tab" data-season="fall">Fall</button>
+                    <button type="button" class="season-tab ideal-temp-season-tab" data-season="winter">Winter</button>
                 </div>
-                <div id="ideal-temp-variable" style="{% if zone_form.ideal_temp_source.data != 'variable' %}display:none;{% endif %}">
-                    {{ render_field(zone_form.ideal_temp_var_id) }}
+
+                <div class="form-field">
+                    <label>Source</label>
+                    <select id="ideal-temp-source">
+                        <option value="static">Static Value</option>
+                        <option value="variable">Indigo Variable</option>
+                        <option value="thermostat">Thermostat Setpoints</option>
+                    </select>
                 </div>
-                <div id="ideal-temp-thermostat" style="{% if zone_form.ideal_temp_source.data != 'thermostat' %}display:none;{% endif %}">
+                <div id="ideal-temp-static-wrap">
+                    <div class="form-field">
+                        <label>Ideal Temperature</label>
+                        <input type="number" id="ideal-temp-value" step="0.5" value="72">
+                    </div>
+                </div>
+                <div id="ideal-temp-variable-wrap" style="display:none;">
+                    <div class="form-field">
+                        <label>Ideal Temperature Variable</label>
+                        <select id="ideal-temp-var-id">
+                            <option value="">-- Select Variable --</option>
+                            {% for var in indigo_variables %}
+                            <option value="{{ var.id }}">{{ var.name }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                </div>
+                <div id="ideal-temp-thermostat-wrap" style="display:none;">
                     <p style="font-style:italic; margin:8px 0;">
                         Uses the thermostat's heat setpoint, cool setpoint, or an average of both when in auto mode.
                     </p>
                 </div>
             </fieldset>
-            {% endif %}
 
             {# Fan Curve Editor Section #}
             <fieldset class="group-box">
@@ -336,6 +361,93 @@
 
                 if (humBoost) humBoost.addEventListener('change', updateHumidityThreshold);
                 updateHumidityThreshold();
+
+                // --- Ideal Temperature: per-season with tab switching ---
+                var idealDefaults = {source: 'static', value: 72.0, var_id: null};
+                var savedIdealTemp = {{ zone.get('seasonal_ideal_temp', {}) | tojson }};
+                var idealSeasons = ['spring', 'summer', 'fall', 'winter'];
+
+                // Determine current season
+                var idealMonth = new Date().getMonth() + 1;
+                var idealCurrentSeason;
+                if (idealMonth >= 3 && idealMonth <= 5) idealCurrentSeason = 'spring';
+                else if (idealMonth >= 6 && idealMonth <= 8) idealCurrentSeason = 'summer';
+                else if (idealMonth >= 9 && idealMonth <= 11) idealCurrentSeason = 'fall';
+                else idealCurrentSeason = 'winter';
+
+                // Initialize per-season state
+                var idealState = {};
+                for (var i = 0; i < idealSeasons.length; i++) {
+                    var key = idealSeasons[i];
+                    var saved = savedIdealTemp[key];
+                    idealState[key] = {
+                        source: (saved && saved.source) ? saved.source : idealDefaults.source,
+                        value: (saved && saved.value !== undefined) ? saved.value : idealDefaults.value,
+                        var_id: (saved && saved.var_id) ? saved.var_id : idealDefaults.var_id
+                    };
+                }
+                window._idealTempState = idealState;
+                window._idealTempActiveSeason = idealCurrentSeason;
+
+                var idealSourceSel = document.getElementById('ideal-temp-source');
+                var idealValueInput = document.getElementById('ideal-temp-value');
+                var idealVarSel = document.getElementById('ideal-temp-var-id');
+                var idealStaticWrap = document.getElementById('ideal-temp-static-wrap');
+                var idealVarWrap = document.getElementById('ideal-temp-variable-wrap');
+                var idealTstatWrap = document.getElementById('ideal-temp-thermostat-wrap');
+
+                function updateIdealTempVisibility() {
+                    var src = idealSourceSel.value;
+                    idealStaticWrap.style.display = (src === 'static') ? '' : 'none';
+                    idealVarWrap.style.display = (src === 'variable') ? '' : 'none';
+                    idealTstatWrap.style.display = (src === 'thermostat') ? '' : 'none';
+                }
+
+                function loadIdealTempSeason(season) {
+                    var s = idealState[season];
+                    idealSourceSel.value = s.source;
+                    idealValueInput.value = s.value;
+                    if (idealVarSel) {
+                        idealVarSel.value = s.var_id || '';
+                    }
+                    updateIdealTempVisibility();
+                }
+
+                function saveIdealTempSeason(season) {
+                    idealState[season] = {
+                        source: idealSourceSel.value,
+                        value: parseFloat(idealValueInput.value) || 72.0,
+                        var_id: (idealVarSel && idealVarSel.value) ? parseInt(idealVarSel.value) : null
+                    };
+                }
+
+                function switchIdealTempSeason(newSeason) {
+                    saveIdealTempSeason(window._idealTempActiveSeason);
+                    window._idealTempActiveSeason = newSeason;
+                    loadIdealTempSeason(newSeason);
+                    document.querySelectorAll('.ideal-temp-season-tab').forEach(function(btn) {
+                        btn.classList.toggle('active', btn.getAttribute('data-season') === newSeason);
+                    });
+                }
+
+                idealSourceSel.addEventListener('change', updateIdealTempVisibility);
+
+                document.querySelectorAll('.ideal-temp-season-tab').forEach(function(btn) {
+                    btn.addEventListener('click', function() {
+                        switchIdealTempSeason(this.getAttribute('data-season'));
+                    });
+                    btn.classList.toggle('active', btn.getAttribute('data-season') === idealCurrentSeason);
+                });
+
+                // Load initial season
+                loadIdealTempSeason(idealCurrentSeason);
+
+                // Serialize ideal temp state into hidden field
+                window._serializeIdealTemp = function() {
+                    saveIdealTempSeason(window._idealTempActiveSeason);
+                    var el = document.getElementById('seasonal-ideal-temp-json');
+                    if (el) el.value = JSON.stringify(window._idealTempState);
+                };
             });
             </script>
 
@@ -381,6 +493,7 @@
               });
               serializeFanCurve();
               if (window._serializeNighttime) window._serializeNighttime();
+              if (window._serializeIdealTemp) window._serializeIdealTemp();
             });
           }
         });

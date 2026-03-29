@@ -50,10 +50,11 @@ class FanZone(AutoFanBase):
         self.thermostat_dev_id: Optional[int] = None
         self.humidity_dev_ids: List[int] = []
 
-        # Temperature settings
-        self.ideal_temp_value: float = 72.0
-        self.ideal_temp_source: str = "static"
-        self.ideal_temp_var_id: Optional[int] = None
+        # Temperature settings (per-season)
+        self.seasonal_ideal_temp: dict = {
+            s: {"source": "static", "value": 72.0, "var_id": None}
+            for s in SEASONS
+        }
 
         # Seasonal fan curves (one per season)
         self.seasonal_curves: dict = {
@@ -101,13 +102,21 @@ class FanZone(AutoFanBase):
             {"key": "outdoor_temperature", "label": "Outdoor Temperature", "type": "number",
              "getter": lambda: self.get_outdoor_temperature() or 0},
             {"key": "current_season", "label": "Current Season", "type": "string",
-             "getter": lambda: get_current_season()},
+             "getter": lambda: get_current_season(**self._config.get_season_kwargs())},
         ]
+
+    @property
+    def _current_ideal_temp_config(self) -> dict:
+        """Return the ideal temp config for the current season."""
+        season = get_current_season(**self._config.get_season_kwargs())
+        return self.seasonal_ideal_temp.get(
+            season, self.seasonal_ideal_temp.get("summer", {})
+        )
 
     @property
     def fan_curve(self) -> dict:
         """Return the fan curve for the current season."""
-        season = get_current_season()
+        season = get_current_season(**self._config.get_season_kwargs())
         return self.seasonal_curves.get(season, self.seasonal_curves.get("summer", {}))
 
     def from_config_dict(self, data: dict) -> None:
@@ -120,9 +129,8 @@ class FanZone(AutoFanBase):
         self.thermostat_dev_id = data.get("thermostat_dev_id")
         self.humidity_dev_ids = data.get("humidity_dev_ids", [])
 
-        self.ideal_temp_value = data.get("ideal_temp_value", 72.0)
-        self.ideal_temp_source = data.get("ideal_temp_source", "static")
-        self.ideal_temp_var_id = data.get("ideal_temp_var_id")
+        if "seasonal_ideal_temp" in data:
+            self.seasonal_ideal_temp = data["seasonal_ideal_temp"]
 
         if "seasonal_curves" in data:
             self.seasonal_curves = data["seasonal_curves"]
@@ -187,25 +195,29 @@ class FanZone(AutoFanBase):
         return readings
 
     def get_ideal_temperature(self) -> Optional[float]:
-        """Get ideal temperature based on configured source."""
-        if self.ideal_temp_source == "variable" and self.ideal_temp_var_id:
+        """Get ideal temperature based on configured source for the current season."""
+        cfg = self._current_ideal_temp_config
+        source = cfg.get("source", "static")
+        fallback = cfg.get("value", 72.0)
+        var_id = cfg.get("var_id")
+
+        if source == "variable" and var_id:
             try:
-                return float(indigo.variables[self.ideal_temp_var_id].value)
+                return float(indigo.variables[var_id].value)
             except Exception:
                 pass
-            return self.ideal_temp_value
-        elif self.ideal_temp_source == "thermostat":
+            return fallback
+        elif source == "thermostat":
             heat = self.get_heat_setpoint()
             cool = self.get_cool_setpoint()
             if heat is not None and cool is not None:
-                # Midpoint between heating and cooling thresholds
                 return (heat + cool) / 2.0
             elif heat is not None:
                 return heat
             elif cool is not None:
                 return cool
-            return self.ideal_temp_value
-        return self.ideal_temp_value
+            return fallback
+        return fallback
 
     def get_ideal_temperature_breakdown(self) -> List[Tuple[str, str]]:
         """Explain how the ideal temperature was resolved.
@@ -213,17 +225,25 @@ class FanZone(AutoFanBase):
         Returns:
             List of (emoji, message) tuples describing the resolution.
         """
+        cfg = self._current_ideal_temp_config
+        source = cfg.get("source", "static")
+        fallback = cfg.get("value", 72.0)
+        var_id = cfg.get("var_id")
+        season = get_current_season(**self._config.get_season_kwargs())
+
         lines: List[Tuple[str, str]] = []
         resolved = self.get_ideal_temperature()
 
-        if self.ideal_temp_source == "variable" and self.ideal_temp_var_id:
+        lines.append(("📅", f"Season: {season}"))
+
+        if source == "variable" and var_id:
             try:
-                var = indigo.variables[self.ideal_temp_var_id]
+                var = indigo.variables[var_id]
                 var_value = float(var.value)
                 lines.append(("🔢", f"Source: variable '{var.name}' (id:{var.id}) = {var_value:.1f}°F"))
             except Exception:
-                lines.append(("⚠️", f"Source: variable (id:{self.ideal_temp_var_id}) — read failed, using fallback {self.ideal_temp_value:.1f}°F"))
-        elif self.ideal_temp_source == "thermostat":
+                lines.append(("⚠️", f"Source: variable (id:{var_id}) — read failed, using fallback {fallback:.1f}°F"))
+        elif source == "thermostat":
             heat = self.get_heat_setpoint()
             cool = self.get_cool_setpoint()
             tstat_name = "Unknown"
@@ -241,9 +261,9 @@ class FanZone(AutoFanBase):
             elif cool is not None:
                 lines.append(("", f"  Cool setpoint only: {cool:.1f}°F"))
             else:
-                lines.append(("⚠️", f"  No setpoints available, using fallback {self.ideal_temp_value:.1f}°F"))
+                lines.append(("⚠️", f"  No setpoints available, using fallback {fallback:.1f}°F"))
         else:
-            lines.append(("📌", f"Source: static = {self.ideal_temp_value:.1f}°F"))
+            lines.append(("📌", f"Source: static = {fallback:.1f}°F"))
 
         return lines
 
@@ -403,7 +423,7 @@ class FanZone(AutoFanBase):
         )
 
         # Interpolate base speed from fan curve (selected by current season)
-        season = get_current_season()
+        season = get_current_season(**self._config.get_season_kwargs())
         base_speed = calculate_base_speed(delta, self.fan_curve)
         plan.contributions.append(
             ("📈", f"Fan curve ({season}) → {base_speed:.1f}%")
@@ -528,9 +548,14 @@ class FanZone(AutoFanBase):
         return elapsed < grace_seconds
 
     def has_variable(self, var_id: int) -> bool:
-        """Check if a variable ID is relevant to this zone."""
-        if self.ideal_temp_source == "variable" and var_id == self.ideal_temp_var_id:
-            return True
+        """Check if a variable ID is relevant to this zone.
+
+        Checks all seasons' ideal temp var_ids, not just the current season,
+        so we don't miss updates when seasons transition.
+        """
+        for season_cfg in self.seasonal_ideal_temp.values():
+            if season_cfg.get("source") == "variable" and var_id == season_cfg.get("var_id"):
+                return True
         return False
 
     # ---- Indigo Device Sync ----

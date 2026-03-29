@@ -196,6 +196,9 @@ class AutoFanConfig(AutoFanBase):
         self._weather_dev_id = None
         self._away_var_id = None
         self._away_var_home_value = "true"
+        self._season_detection_mode = "automatic"
+        self._hemisphere = "north"
+        self._season_var_id = None
 
         self._zones = []
         self._config_file = config
@@ -281,6 +284,38 @@ class AutoFanConfig(AutoFanBase):
     def away_var_home_value(self, value: str) -> None:
         self._away_var_home_value = value
 
+    @property
+    def season_detection_mode(self) -> str:
+        return self._season_detection_mode
+
+    @season_detection_mode.setter
+    def season_detection_mode(self, value: str) -> None:
+        self._season_detection_mode = value
+
+    @property
+    def hemisphere(self) -> str:
+        return self._hemisphere
+
+    @hemisphere.setter
+    def hemisphere(self, value: str) -> None:
+        self._hemisphere = value
+
+    @property
+    def season_var_id(self):
+        return self._season_var_id
+
+    @season_var_id.setter
+    def season_var_id(self, value) -> None:
+        self._season_var_id = value
+
+    def get_season_kwargs(self) -> dict:
+        """Return kwargs for get_current_season()."""
+        return {
+            "mode": self._season_detection_mode,
+            "hemisphere": self._hemisphere,
+            "season_var_id": self._season_var_id,
+        }
+
     def is_home(self) -> bool:
         """Check if someone is home based on the configured away variable.
 
@@ -348,6 +383,25 @@ class AutoFanConfig(AutoFanBase):
             zone_d["ideal_temp_source"] = "variable" if old_val else "static"
         elif "ideal_temp_use_variable" in zone_d:
             zone_d.pop("ideal_temp_use_variable")
+
+        # ideal_temp flat fields → seasonal_ideal_temp (per-season)
+        if "seasonal_ideal_temp" not in zone_d:
+            flat_source = zone_d.pop("ideal_temp_source", "static")
+            flat_value = zone_d.pop("ideal_temp_value", 72.0)
+            flat_var_id = zone_d.pop("ideal_temp_var_id", None)
+            zone_d["seasonal_ideal_temp"] = {
+                s: {
+                    "source": flat_source,
+                    "value": flat_value,
+                    "var_id": flat_var_id,
+                }
+                for s in SEASONS
+            }
+        else:
+            # Clean up old keys if both exist
+            zone_d.pop("ideal_temp_source", None)
+            zone_d.pop("ideal_temp_value", None)
+            zone_d.pop("ideal_temp_var_id", None)
 
         # Remove deprecated weather_dev_id_override
         zone_d.pop("weather_dev_id_override", None)

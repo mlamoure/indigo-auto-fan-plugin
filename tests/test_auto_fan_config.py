@@ -121,6 +121,10 @@ class TestAutoFanConfig:
 
     def test_load_zone_with_new_fields(self, fake_indigo):
         """Verify new schema fields load correctly."""
+        seasonal_ideal = {
+            s: {"source": "thermostat", "value": 74, "var_id": 500}
+            for s in ("spring", "summer", "fall", "winter")
+        }
         config = self._make_config({
             "plugin_config": {
                 "enabled": True,
@@ -134,22 +138,24 @@ class TestAutoFanConfig:
                     "temp_sensor_dev_ids": [200],
                     "presence_dev_ids": [300],
                     "humidity_dev_ids": [400, 401],
-                    "ideal_temp_source": "thermostat",
-                    "ideal_temp_var_id": 500,
-                    "ideal_temp_value": 74,
+                    "seasonal_ideal_temp": seasonal_ideal,
                     "thermostat_dev_id": 600,
                 }
             ],
         })
         zone = config.zones[0]
         assert zone.humidity_dev_ids == [400, 401]
-        assert zone.ideal_temp_source == "thermostat"
-        assert zone.ideal_temp_var_id == 500
-        assert zone.ideal_temp_value == 74
+        assert zone.seasonal_ideal_temp["summer"]["source"] == "thermostat"
+        assert zone.seasonal_ideal_temp["summer"]["var_id"] == 500
+        assert zone.seasonal_ideal_temp["summer"]["value"] == 74
         assert zone.thermostat_dev_id == 600
 
     def test_migration_preserves_new_fields_over_old(self, fake_indigo):
         """When both old and new fields exist, new fields win."""
+        seasonal_ideal = {
+            s: {"source": "thermostat", "value": 72.0, "var_id": None}
+            for s in ("spring", "summer", "fall", "winter")
+        }
         config = self._make_config({
             "plugin_config": {
                 "enabled": True,
@@ -165,7 +171,7 @@ class TestAutoFanConfig:
                     "humidity_dev_id": 400,
                     "humidity_dev_ids": [401, 402],
                     "ideal_temp_use_variable": True,
-                    "ideal_temp_source": "thermostat",
+                    "seasonal_ideal_temp": seasonal_ideal,
                     "weather_dev_id_override": 500,
                 }
             ],
@@ -173,7 +179,7 @@ class TestAutoFanConfig:
         zone = config.zones[0]
         # New fields should be preserved, old fields discarded
         assert zone.humidity_dev_ids == [401, 402]
-        assert zone.ideal_temp_source == "thermostat"
+        assert zone.seasonal_ideal_temp["summer"]["source"] == "thermostat"
 
     def test_migrate_speed_curves_to_seasonal_curves(self, fake_indigo):
         """Legacy speed_curves should be converted through chain to seasonal_curves."""

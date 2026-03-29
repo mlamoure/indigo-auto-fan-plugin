@@ -1,6 +1,7 @@
 import datetime
+import logging
 import threading
-from typing import List
+from typing import List, Optional
 
 from .auto_fan_base import AutoFanBase
 from .auto_fan_config import AutoFanConfig
@@ -34,11 +35,16 @@ class AutoFanAgent(AutoFanBase):
         for z in self.config.zones:
             z._config.agent = self
 
-    def process_zone(self, zone: FanZone) -> bool:
+    def process_zone(self, zone: FanZone, trigger: Optional[str] = None) -> bool:
         """
         Main automation function for a single fan zone.
 
         Calculates target speed and applies changes if needed.
+
+        Args:
+            zone: The fan zone to process.
+            trigger: Description of what triggered this evaluation
+                (e.g., "device 'Bedroom Temp'").
 
         Returns:
             True if changes were applied, False otherwise.
@@ -81,7 +87,7 @@ class AutoFanAgent(AutoFanBase):
 
         # Apply changes if speed differs
         if zone.has_speed_change():
-            self._log_zone_breakdown(zone)
+            self._log_zone_breakdown(zone, trigger)
             zone.apply_speed_change()
         else:
             self._debug_log(f"Zone '{zone.name}': no speed change needed")
@@ -142,7 +148,7 @@ class AutoFanAgent(AutoFanBase):
                             timer.start()
             else:
                 # Sensor, thermostat, presence, humidity, or weather change
-                if self.process_zone(zone):
+                if self.process_zone(zone, trigger=f"device '{orig_dev.name}'"):
                     processed.append(zone)
 
         return processed
@@ -151,6 +157,7 @@ class AutoFanAgent(AutoFanBase):
         """
         Process a variable change event.
 
+        If it's the global season variable, reprocess all zones.
         If it's a zone-level variable (e.g., ideal temp), process that zone.
 
         Returns:
@@ -158,17 +165,25 @@ class AutoFanAgent(AutoFanBase):
         """
         processed = []
 
+        # Global season variable affects all zones
+        if (self.config.season_detection_mode == "variable"
+                and orig_var.id == self.config.season_var_id):
+            for zone in self.config.zones:
+                if self.process_zone(zone, trigger="season variable change"):
+                    processed.append(zone)
+            return processed
+
         for zone in self.config.zones:
             if zone.has_variable(orig_var.id):
-                if self.process_zone(zone):
+                if self.process_zone(zone, trigger=f"variable '{new_var.name}'"):
                     processed.append(zone)
 
         return processed
 
-    def process_all_zones(self) -> None:
+    def process_all_zones(self, trigger: Optional[str] = None) -> None:
         """Process all zones (used after global config changes)."""
         for zone in self.config.zones:
-            self.process_zone(zone)
+            self.process_zone(zone, trigger=trigger)
 
     def _process_expired_lock(self, zone: FanZone) -> None:
         """
@@ -190,7 +205,7 @@ class AutoFanAgent(AutoFanBase):
             if zone.name in self._timers:
                 self._timers[zone.name].cancel()
                 del self._timers[zone.name]
-            self.process_zone(zone)
+            self.process_zone(zone, trigger="lock expired")
         else:
             # Still locked (extended), reschedule
             if zone.lock_expiration:
@@ -216,7 +231,7 @@ class AutoFanAgent(AutoFanBase):
         ]
         for zone in targets:
             zone.unlock_zone()
-            self.process_zone(zone)
+            self.process_zone(zone, trigger="manual unlock")
             if zone.name in self._timers:
                 self._timers[zone.name].cancel()
                 del self._timers[zone.name]
@@ -232,31 +247,68 @@ class AutoFanAgent(AutoFanBase):
                 exp = zone.lock_expiration.strftime('%H:%M:%S') if zone.lock_expiration else "N/A"
                 self.logger.info(f"🔒 Zone '{zone.name}' locked until {exp}")
 
-    def _log_zone_breakdown(self, zone: FanZone) -> None:
-        """Log a detailed temperature/speed breakdown for a single zone."""
-        log = self.logger.info
-        log(f"📊 Zone '{zone.name}' — Temperature Breakdown")
+    def _log_zone_breakdown(self, zone: FanZone, trigger: Optional[str] = None) -> None:
+        """Log concise speed change at INFO, detailed breakdown at DEBUG."""
+        season = get_current_season(**self.config.get_season_kwargs())
+        current_speed = round(zone._get_current_speed_pct())
+        target_speed = round(zone._target_speed_pct)
+        current_temp = zone.get_current_temperature()
+        ideal = zone.get_ideal_temperature()
+
+        # Build concise modifier summary
+        delta = zone.get_temperature_delta()
+        modifier_contribs = []
+        if delta is not None:
+            _, modifier_contribs = apply_modifiers(
+                base_speed=calculate_base_speed(delta, zone.fan_curve),
+                modifiers=zone.modifiers,
+                is_hvac_cooling=zone.is_hvac_cooling(),
+                is_hvac_heating=zone.is_hvac_heating(),
+                humidity=zone.get_humidity(),
+                is_home=self.config.is_home(),
+                season=season,
+            )
+
+        parts = [f"Zone '{zone.name}' speed: {current_speed}% -> {target_speed}%"]
+        if trigger:
+            parts.append(f"Trigger: {trigger}")
+        if current_temp is not None and ideal is not None:
+            parts.append(f"Temp: {current_temp:.1f}F, Ideal: {ideal:.1f}F ({season})")
+        if modifier_contribs:
+            mod_strs = [msg for _, msg in modifier_contribs]
+            parts.append(f"Modifiers: {', '.join(mod_strs)}")
+
+        self.logger.info("  |  ".join(parts))
+
+        # Detailed breakdown at DEBUG
+        if self.logger.isEnabledFor(logging.DEBUG):
+            self._log_zone_breakdown_full(zone, season, self.logger.debug)
+
+    def _log_zone_breakdown_full(self, zone: FanZone, season: str, log_fn) -> None:
+        """Log detailed temperature/speed breakdown using the provided log function."""
+        log = log_fn
+        log(f"  Zone '{zone.name}' — Detailed Breakdown")
 
         # Ideal temperature
-        log("  🎯 Ideal Temperature:")
+        log("    Ideal Temperature:")
         for emoji, msg in zone.get_ideal_temperature_breakdown():
             prefix = f"  {emoji} " if emoji else "  "
-            log(f"    {prefix}{msg}")
+            log(f"      {prefix}{msg}")
 
         # Sensor readings
         readings = zone.get_sensor_readings()
         if readings:
-            log("  🌡️ Sensor Readings:")
+            log("    Sensor Readings:")
             for dev_id, name, value in readings:
                 if value is not None:
-                    log(f"      '{name}' (id:{dev_id}): {value:.1f}°F")
+                    log(f"        '{name}' (id:{dev_id}): {value:.1f}F")
                 else:
-                    log(f"      '{name}' (id:{dev_id}): unavailable")
+                    log(f"        '{name}' (id:{dev_id}): unavailable")
             avg = zone.get_current_temperature()
             if avg is not None:
-                log(f"      Average: {avg:.1f}°F")
+                log(f"        Average: {avg:.1f}F")
         else:
-            log("  🌡️ No temperature sensors configured")
+            log("    No temperature sensors configured")
 
         # Delta
         delta = zone.get_temperature_delta()
@@ -267,21 +319,20 @@ class AutoFanAgent(AutoFanBase):
                 interp = "cooler than ideal"
             else:
                 interp = "at ideal"
-            log(f"  📐 Delta: {delta:+.1f}°F ({interp})")
+            log(f"    Delta: {delta:+.1f}F ({interp})")
         else:
-            log("  📐 Delta: unavailable (missing sensor data)")
+            log("    Delta: unavailable (missing sensor data)")
             return
 
         # Season and fan curve
-        season = get_current_season()
         curve = zone.fan_curve
         temp_range = curve.get("temperature_range", "?")
         num_points = len(curve.get("points", []))
-        log(f"  📅 Season: {season}, curve range: ±{temp_range}°F, {num_points} points")
+        log(f"    Season: {season}, curve range: +/-{temp_range}F, {num_points} points")
 
         # Base speed
         base_speed = calculate_base_speed(delta, curve)
-        log(f"  📈 Base speed from curve: {base_speed:.1f}%")
+        log(f"    Base speed from curve: {base_speed:.1f}%")
 
         # Modifiers
         final_speed, modifier_contribs = apply_modifiers(
@@ -294,32 +345,34 @@ class AutoFanAgent(AutoFanBase):
             season=season,
         )
         if modifier_contribs:
-            log("  🔧 Modifiers:")
+            log("    Modifiers:")
             for emoji, msg in modifier_contribs:
-                log(f"      {emoji} {msg}")
+                log(f"        {emoji} {msg}")
         else:
-            log("  🔧 Modifiers: none active")
+            log("    Modifiers: none active")
 
         # Final speed and current
-        log(f"  🎯 Final target speed: {final_speed:.0f}%")
+        log(f"    Final target speed: {final_speed:.0f}%")
         current_speed = zone._get_current_speed_pct()
-        log(f"  🌀 Current fan speed: {current_speed:.0f}%")
+        log(f"    Current fan speed: {current_speed:.0f}%")
 
         # Status notes
         if not zone.enabled:
-            log("  ⏸️ Zone is DISABLED")
+            log("    Zone is DISABLED")
         if zone.locked:
             exp = zone.lock_expiration.strftime('%H:%M:%S') if zone.lock_expiration else "N/A"
-            log(f"  🔒 Zone is LOCKED until {exp}")
+            log(f"    Zone is LOCKED until {exp}")
 
     def print_zone_breakdowns(self) -> None:
-        """Log detailed temperature breakdown for all zones."""
+        """Log detailed temperature breakdown for all zones (always at INFO)."""
         zones = self.config.zones
         if not zones:
             self.logger.info("No zones configured.")
             return
         for zone in zones:
-            self._log_zone_breakdown(zone)
+            season = get_current_season(**self.config.get_season_kwargs())
+            self.logger.info(f"Zone '{zone.name}' — Temperature Breakdown")
+            self._log_zone_breakdown_full(zone, season, self.logger.info)
 
     def enable_all_zones(self) -> None:
         self.config.enabled = True

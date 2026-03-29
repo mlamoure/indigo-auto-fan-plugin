@@ -2,7 +2,9 @@
   "plugin_config": {
     "default_lock_duration": 60,
     "default_lock_extension_duration": 30,
-    "weather_dev_id": null
+    "weather_dev_id": null,
+    "season_detection_mode": "automatic",
+    "hemisphere": "north"
   },
   "zones": []
 }

@@ -201,10 +201,10 @@ class TestProcessVariableChange:
                            presence_id=301, temp_value=73.0, fan_speed=0)
         agent = _make_agent()
 
-        # Set up zone 0 to use variable for ideal temp
+        # Set up zone 0 to use variable for ideal temp (all seasons)
         zone = agent.config.zones[0]
-        zone.ideal_temp_source = "variable"
-        zone.ideal_temp_var_id = 500
+        for s in zone.seasonal_ideal_temp:
+            zone.seasonal_ideal_temp[s] = {"source": "variable", "value": 72.0, "var_id": 500}
         fake_indigo.variables[500] = Variable(500, name="ideal_temp", value="70")
 
         orig_var = Variable(500, name="ideal_temp", value="72")

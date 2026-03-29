@@ -42,6 +42,32 @@
           "default": "true",
           "title": "Variable Value When Home",
           "tooltip": "The value of the Home/Away variable that means someone is home."
+        },
+        "season_detection_mode": {
+          "type": "string",
+          "x-sync_to_indigo": true,
+          "enum": ["automatic", "variable"],
+          "x-enum-labels": ["Automatic (by month)", "Indigo Variable"],
+          "default": "automatic",
+          "title": "Season Detection Method",
+          "tooltip": "How the plugin determines the current season. 'Automatic' uses the calendar month and hemisphere. 'Variable' reads from an Indigo variable."
+        },
+        "hemisphere": {
+          "type": "string",
+          "x-sync_to_indigo": true,
+          "enum": ["north", "south"],
+          "x-enum-labels": ["Northern Hemisphere", "Southern Hemisphere"],
+          "default": "north",
+          "title": "Hemisphere",
+          "tooltip": "Used for automatic season detection. Northern: Spring=Mar-May, Summer=Jun-Aug. Southern: seasons are reversed."
+        },
+        "season_var_id": {
+          "type": "integer",
+          "x-sync_to_indigo": true,
+          "x-drop-down": true,
+          "x-include-variable-types": ["string"],
+          "title": "Season Variable",
+          "tooltip": "Indigo variable containing the current season: 'spring', 'summer', 'fall', or 'winter'."
         }
       }
     },
@@ -113,23 +139,15 @@
             "tooltip": "One or more humidity sensors. If multiple, average is used.",
             "default": []
           },
-          "ideal_temp_value": {
-            "type": "number",
-            "x-sync_to_indigo": true,
-            "title": "Ideal Temperature",
-            "default": 72
-          },
-          "ideal_temp_source": {
-            "type": "string",
-            "title": "Ideal Temperature Source",
-            "enum": ["static", "variable", "thermostat"],
-            "default": "static",
-            "tooltip": "How to determine the ideal temperature. 'thermostat' uses the heat setpoint, cool setpoint, or average of both when in auto mode."
-          },
-          "ideal_temp_var_id": {
-            "type": "integer",
-            "x-drop-down": true,
-            "title": "Ideal Temperature Variable"
+          "seasonal_ideal_temp": {
+            "type": "object",
+            "title": "Seasonal Ideal Temperature",
+            "properties": {
+              "spring": { "$ref": "#/definitions/ideal_temp_season" },
+              "summer": { "$ref": "#/definitions/ideal_temp_season" },
+              "fall":   { "$ref": "#/definitions/ideal_temp_season" },
+              "winter": { "$ref": "#/definitions/ideal_temp_season" }
+            }
           },
           "seasonal_curves": {
             "type": "object",
@@ -378,6 +396,27 @@
   },
   "required": ["plugin_config", "zones"],
   "definitions": {
+    "ideal_temp_season": {
+      "type": "object",
+      "properties": {
+        "source": {
+          "type": "string",
+          "enum": ["static", "variable", "thermostat"],
+          "default": "static",
+          "title": "Ideal Temperature Source"
+        },
+        "value": {
+          "type": "number",
+          "default": 72,
+          "title": "Ideal Temperature"
+        },
+        "var_id": {
+          "type": "integer",
+          "x-drop-down": true,
+          "title": "Ideal Temperature Variable"
+        }
+      }
+    },
     "fan_curve": {
       "type": "object",
       "properties": {

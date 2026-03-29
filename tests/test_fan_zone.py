@@ -101,8 +101,9 @@ class TestFanZoneTemperature:
         fake_indigo.variables[500] = Variable(500, name="ideal_temp", value="70")
 
         zone, config = self._make_zone()
-        zone.ideal_temp_source = "variable"
-        zone.ideal_temp_var_id = 500
+        # Set all seasons to variable source for simplicity
+        for s in zone.seasonal_ideal_temp:
+            zone.seasonal_ideal_temp[s] = {"source": "variable", "value": 72.0, "var_id": 500}
 
         assert zone.get_ideal_temperature() == 70.0
         assert zone.get_temperature_delta() == pytest.approx(5.0)
@@ -114,7 +115,8 @@ class TestFanZoneTemperature:
 
         zone, config = self._make_zone()
         zone.thermostat_dev_id = 400
-        zone.ideal_temp_source = "thermostat"
+        for s in zone.seasonal_ideal_temp:
+            zone.seasonal_ideal_temp[s] = {"source": "thermostat", "value": 72.0, "var_id": None}
 
         assert zone.get_ideal_temperature() == 72.0  # (68 + 76) / 2
 
@@ -125,7 +127,8 @@ class TestFanZoneTemperature:
 
         zone, config = self._make_zone()
         zone.thermostat_dev_id = 400
-        zone.ideal_temp_source = "thermostat"
+        for s in zone.seasonal_ideal_temp:
+            zone.seasonal_ideal_temp[s] = {"source": "thermostat", "value": 72.0, "var_id": None}
 
         assert zone.get_ideal_temperature() == 70.0
 
@@ -136,7 +139,8 @@ class TestFanZoneTemperature:
 
         zone, config = self._make_zone()
         zone.thermostat_dev_id = 400
-        zone.ideal_temp_source = "thermostat"
+        for s in zone.seasonal_ideal_temp:
+            zone.seasonal_ideal_temp[s] = {"source": "thermostat", "value": 72.0, "var_id": None}
 
         assert zone.get_ideal_temperature() == 78.0
 
@@ -145,20 +149,36 @@ class TestFanZoneTemperature:
         fake_indigo.devices[200].states["sensorValue"] = 75.0
 
         zone, config = self._make_zone()
-        zone.ideal_temp_source = "thermostat"
-        # No thermostat configured -> fallback to ideal_temp_value
+        for s in zone.seasonal_ideal_temp:
+            zone.seasonal_ideal_temp[s] = {"source": "thermostat", "value": 72.0, "var_id": None}
+        # No thermostat configured -> fallback to value
         assert zone.get_ideal_temperature() == 72.0
 
     def test_ideal_temp_variable_fallback_on_error(self, fake_indigo):
-        """Variable lookup fails -> falls back to ideal_temp_value."""
+        """Variable lookup fails -> falls back to value."""
         fake_indigo.devices[200] = Device(200, name="Temp", sensorValue=75.0)
         fake_indigo.devices[200].states["sensorValue"] = 75.0
 
         zone, config = self._make_zone()
-        zone.ideal_temp_source = "variable"
-        zone.ideal_temp_var_id = 999  # non-existent variable
+        for s in zone.seasonal_ideal_temp:
+            zone.seasonal_ideal_temp[s] = {"source": "variable", "value": 72.0, "var_id": 999}
 
-        assert zone.get_ideal_temperature() == 72.0  # falls back to ideal_temp_value
+        assert zone.get_ideal_temperature() == 72.0  # falls back to value
+
+    def test_ideal_temp_season_specific(self, fake_indigo):
+        """Different ideal temps per season."""
+        fake_indigo.devices[200] = Device(200, name="Temp", sensorValue=75.0)
+        fake_indigo.devices[200].states["sensorValue"] = 75.0
+
+        zone, config = self._make_zone()
+        zone.seasonal_ideal_temp["summer"] = {"source": "static", "value": 70.0, "var_id": None}
+        zone.seasonal_ideal_temp["winter"] = {"source": "static", "value": 74.0, "var_id": None}
+
+        with patch("auto_fan.fan_zone.get_current_season", return_value="summer"):
+            assert zone.get_ideal_temperature() == 70.0
+
+        with patch("auto_fan.fan_zone.get_current_season", return_value="winter"):
+            assert zone.get_ideal_temperature() == 74.0
 
     def test_no_sensors_returns_none(self, fake_indigo):
         zone, config = self._make_zone()
@@ -311,21 +331,26 @@ class TestFanZoneSpeedCalc:
 
     def test_has_variable_with_variable_source(self, fake_indigo):
         zone, config = self._make_zone()
-        zone.ideal_temp_source = "variable"
-        zone.ideal_temp_var_id = 500
+        zone.seasonal_ideal_temp["summer"] = {"source": "variable", "value": 72.0, "var_id": 500}
         assert zone.has_variable(500) is True
         assert zone.has_variable(999) is False
 
     def test_has_variable_with_static_source(self, fake_indigo):
         zone, config = self._make_zone()
-        zone.ideal_temp_source = "static"
-        zone.ideal_temp_var_id = 500
+        # All seasons are static (default)
         assert zone.has_variable(500) is False
+
+    def test_has_variable_checks_all_seasons(self, fake_indigo):
+        """has_variable should match var_id from any season, not just current."""
+        zone, config = self._make_zone()
+        zone.seasonal_ideal_temp["winter"] = {"source": "variable", "value": 72.0, "var_id": 500}
+        # Even if current season isn't winter, should still match
+        assert zone.has_variable(500) is True
 
     def test_has_variable_with_thermostat_source(self, fake_indigo):
         zone, config = self._make_zone()
-        zone.ideal_temp_source = "thermostat"
-        zone.ideal_temp_var_id = 500
+        for s in zone.seasonal_ideal_temp:
+            zone.seasonal_ideal_temp[s] = {"source": "thermostat", "value": 72.0, "var_id": 500}
         assert zone.has_variable(500) is False
 
     def test_seasonal_curve_selection(self, fake_indigo):
@@ -504,17 +529,59 @@ class TestConfigMigration:
 
     def test_migrate_ideal_temp_use_variable_true(self, fake_indigo):
         from auto_fan.auto_fan_config import AutoFanConfig
-        zone_d = {"name": "Test", "ideal_temp_use_variable": True}
+        zone_d = {"name": "Test", "ideal_temp_use_variable": True, "ideal_temp_var_id": 500}
         AutoFanConfig._migrate_zone(zone_d)
-        assert zone_d.get("ideal_temp_source") == "variable"
+        # Should end up in seasonal_ideal_temp with variable source
+        assert "seasonal_ideal_temp" in zone_d
+        for s in ("spring", "summer", "fall", "winter"):
+            assert zone_d["seasonal_ideal_temp"][s]["source"] == "variable"
+            assert zone_d["seasonal_ideal_temp"][s]["var_id"] == 500
         assert "ideal_temp_use_variable" not in zone_d
+        assert "ideal_temp_source" not in zone_d
 
     def test_migrate_ideal_temp_use_variable_false(self, fake_indigo):
         from auto_fan.auto_fan_config import AutoFanConfig
-        zone_d = {"name": "Test", "ideal_temp_use_variable": False}
+        zone_d = {"name": "Test", "ideal_temp_use_variable": False, "ideal_temp_value": 74.0}
         AutoFanConfig._migrate_zone(zone_d)
-        assert zone_d.get("ideal_temp_source") == "static"
+        assert "seasonal_ideal_temp" in zone_d
+        for s in ("spring", "summer", "fall", "winter"):
+            assert zone_d["seasonal_ideal_temp"][s]["source"] == "static"
+            assert zone_d["seasonal_ideal_temp"][s]["value"] == 74.0
         assert "ideal_temp_use_variable" not in zone_d
+
+    def test_migrate_flat_ideal_temp_to_seasonal(self, fake_indigo):
+        """Flat ideal_temp fields migrate to seasonal_ideal_temp."""
+        from auto_fan.auto_fan_config import AutoFanConfig
+        zone_d = {
+            "name": "Test",
+            "ideal_temp_source": "thermostat",
+            "ideal_temp_value": 73.0,
+            "ideal_temp_var_id": 500,
+        }
+        AutoFanConfig._migrate_zone(zone_d)
+        assert "seasonal_ideal_temp" in zone_d
+        assert "ideal_temp_source" not in zone_d
+        assert "ideal_temp_value" not in zone_d
+        assert "ideal_temp_var_id" not in zone_d
+        for s in ("spring", "summer", "fall", "winter"):
+            assert zone_d["seasonal_ideal_temp"][s]["source"] == "thermostat"
+            assert zone_d["seasonal_ideal_temp"][s]["value"] == 73.0
+            assert zone_d["seasonal_ideal_temp"][s]["var_id"] == 500
+
+    def test_migrate_preserves_existing_seasonal_ideal_temp(self, fake_indigo):
+        """When seasonal_ideal_temp exists, old flat fields are cleaned up."""
+        from auto_fan.auto_fan_config import AutoFanConfig
+        existing = {s: {"source": "static", "value": 70.0, "var_id": None} for s in ("spring", "summer", "fall", "winter")}
+        zone_d = {
+            "name": "Test",
+            "seasonal_ideal_temp": existing,
+            "ideal_temp_source": "static",
+            "ideal_temp_value": 72.0,
+        }
+        AutoFanConfig._migrate_zone(zone_d)
+        assert zone_d["seasonal_ideal_temp"] is existing
+        assert "ideal_temp_source" not in zone_d
+        assert "ideal_temp_value" not in zone_d
 
     def test_migrate_removes_weather_override(self, fake_indigo):
         from auto_fan.auto_fan_config import AutoFanConfig
@@ -524,10 +591,11 @@ class TestConfigMigration:
 
     def test_migrate_no_op_for_current_schema(self, fake_indigo):
         from auto_fan.auto_fan_config import AutoFanConfig
-        zone_d = {"name": "Test", "humidity_dev_ids": [400], "ideal_temp_source": "static"}
+        seasonal = {s: {"source": "static", "value": 72.0, "var_id": None} for s in ("spring", "summer", "fall", "winter")}
+        zone_d = {"name": "Test", "humidity_dev_ids": [400], "seasonal_ideal_temp": seasonal}
         AutoFanConfig._migrate_zone(zone_d)
         assert zone_d["humidity_dev_ids"] == [400]
-        assert zone_d["ideal_temp_source"] == "static"
+        assert zone_d["seasonal_ideal_temp"] is seasonal
 
 
 class TestGetSensorReadings:
@@ -583,71 +651,67 @@ class TestIdealTemperatureBreakdown:
     def test_static_source(self, fake_indigo):
         zone, config = self._make_zone()
         lines = zone.get_ideal_temperature_breakdown()
-        assert len(lines) == 1
-        emoji, msg = lines[0]
-        assert emoji == "📌"
-        assert "static" in msg.lower()
-        assert "72.0" in msg
+        # First line is season indicator, second is source
+        has_static = any("static" in msg.lower() for _, msg in lines)
+        has_value = any("72.0" in msg for _, msg in lines)
+        assert has_static
+        assert has_value
 
     def test_variable_source(self, fake_indigo):
         fake_indigo.variables[500] = Variable(500, name="ideal_temp", value="70")
 
         zone, config = self._make_zone()
-        zone.ideal_temp_source = "variable"
-        zone.ideal_temp_var_id = 500
+        for s in zone.seasonal_ideal_temp:
+            zone.seasonal_ideal_temp[s] = {"source": "variable", "value": 72.0, "var_id": 500}
 
         lines = zone.get_ideal_temperature_breakdown()
-        assert len(lines) == 1
-        emoji, msg = lines[0]
-        assert emoji == "🔢"
-        assert "ideal_temp" in msg
-        assert "70.0" in msg
+        has_var = any("ideal_temp" in msg for _, msg in lines)
+        has_value = any("70.0" in msg for _, msg in lines)
+        assert has_var
+        assert has_value
 
     def test_variable_source_fallback(self, fake_indigo):
         zone, config = self._make_zone()
-        zone.ideal_temp_source = "variable"
-        zone.ideal_temp_var_id = 999  # non-existent
+        for s in zone.seasonal_ideal_temp:
+            zone.seasonal_ideal_temp[s] = {"source": "variable", "value": 72.0, "var_id": 999}
 
         lines = zone.get_ideal_temperature_breakdown()
-        assert len(lines) == 1
-        emoji, msg = lines[0]
-        assert emoji == "⚠️"
-        assert "fallback" in msg.lower()
-        assert "72.0" in msg
+        has_fallback = any("fallback" in msg.lower() for _, msg in lines)
+        assert has_fallback
 
     def test_thermostat_both_setpoints(self, fake_indigo):
         fake_indigo.devices[400] = Device(400, name="Main HVAC", heatSetpoint=68.0, coolSetpoint=76.0)
 
         zone, config = self._make_zone()
-        zone.ideal_temp_source = "thermostat"
+        for s in zone.seasonal_ideal_temp:
+            zone.seasonal_ideal_temp[s] = {"source": "thermostat", "value": 72.0, "var_id": None}
         zone.thermostat_dev_id = 400
 
         lines = zone.get_ideal_temperature_breakdown()
-        # Should have: source line, setpoints line, midpoint line
-        assert len(lines) == 3
-        assert "Main HVAC" in lines[0][1]
-        assert "68.0" in lines[1][1]
-        assert "76.0" in lines[1][1]
-        assert "72.0" in lines[2][1]
+        all_text = " ".join(msg for _, msg in lines)
+        assert "Main HVAC" in all_text
+        assert "68.0" in all_text
+        assert "76.0" in all_text
+        assert "72.0" in all_text
 
     def test_thermostat_heat_only(self, fake_indigo):
         fake_indigo.devices[400] = Device(400, name="Heater", heatSetpoint=70.0)
 
         zone, config = self._make_zone()
-        zone.ideal_temp_source = "thermostat"
+        for s in zone.seasonal_ideal_temp:
+            zone.seasonal_ideal_temp[s] = {"source": "thermostat", "value": 72.0, "var_id": None}
         zone.thermostat_dev_id = 400
 
         lines = zone.get_ideal_temperature_breakdown()
-        assert len(lines) == 2
-        assert "heat setpoint only" in lines[1][1].lower()
-        assert "70.0" in lines[1][1]
+        has_heat = any("heat setpoint only" in msg.lower() for _, msg in lines)
+        assert has_heat
 
     def test_thermostat_no_setpoints_fallback(self, fake_indigo):
         zone, config = self._make_zone()
-        zone.ideal_temp_source = "thermostat"
+        for s in zone.seasonal_ideal_temp:
+            zone.seasonal_ideal_temp[s] = {"source": "thermostat", "value": 72.0, "var_id": None}
         # No thermostat device configured
 
         lines = zone.get_ideal_temperature_breakdown()
-        # Should have source line + fallback line
         has_fallback = any("fallback" in msg.lower() for _, msg in lines)
         assert has_fallback

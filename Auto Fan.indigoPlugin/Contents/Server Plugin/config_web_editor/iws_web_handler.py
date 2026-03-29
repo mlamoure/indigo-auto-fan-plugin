@@ -388,7 +388,7 @@ class IWSWebHandler:
             # Coerce integer fields from strings
             for int_field in ["fan_dev_id", "thermostat_dev_id",
                               "zone_index", "indigo_dev_id",
-                              "ideal_temp_var_id", "lock_duration", "lock_extension_duration"]:
+                              "lock_duration", "lock_extension_duration"]:
                 val = zone_data.get(int_field)
                 if val is not None and val != "":
                     try:
@@ -398,16 +398,17 @@ class IWSWebHandler:
                 elif val == "":
                     zone_data[int_field] = None
 
-            # Coerce float fields
-            for float_field in ["ideal_temp_value"]:
-                val = zone_data.get(float_field)
-                if val is not None and val != "":
-                    try:
-                        zone_data[float_field] = float(val)
-                    except (ValueError, TypeError):
-                        zone_data[float_field] = None
-                elif val == "":
-                    zone_data[float_field] = None
+            # Process seasonal ideal temp from hidden JSON field (per-season)
+            seasonal_ideal_temp_json = body_params.get("seasonal_ideal_temp_json", "")
+            if seasonal_ideal_temp_json:
+                try:
+                    zone_data["seasonal_ideal_temp"] = json.loads(seasonal_ideal_temp_json)
+                except (json.JSONDecodeError, TypeError):
+                    pass
+            # Remove stale flat ideal temp fields if present
+            zone_data.pop("ideal_temp_value", None)
+            zone_data.pop("ideal_temp_source", None)
+            zone_data.pop("ideal_temp_var_id", None)
 
             # Convert -1 sentinel to None for single-select device fields
             for dev_field in ["fan_dev_id", "thermostat_dev_id"]:
@@ -528,7 +529,7 @@ class IWSWebHandler:
             }
 
             # Coerce integer fields
-            for int_field in ["default_lock_duration", "default_lock_extension_duration", "weather_dev_id", "away_var_id"]:
+            for int_field in ["default_lock_duration", "default_lock_extension_duration", "weather_dev_id", "away_var_id", "season_var_id"]:
                 val = plugin_config.get(int_field)
                 if val is not None and val != "" and val != "-1":
                     try:
@@ -802,9 +803,16 @@ class IWSWebHandler:
             except Exception as e:
                 logger.warning(f"Could not configure global_behavior_variables_map: {e}")
 
+            # Get variables for ideal temp variable dropdowns
+            try:
+                indigo_variables = self.config_editor.get_cached_indigo_variables()
+            except Exception:
+                indigo_variables = []
+
             # Render template
             template = self.jinja_env.get_template('zone_edit.html')
-            html = template.render(zone_form=zone_form, index=zone_id, zone=zone, flash=flash or {})
+            html = template.render(zone_form=zone_form, index=zone_id, zone=zone,
+                                   indigo_variables=indigo_variables, flash=flash or {})
 
             return create_html_response(html)
 
