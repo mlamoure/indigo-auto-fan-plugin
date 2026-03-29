@@ -10,6 +10,8 @@ The plugin automatically adjusts fan speed based on data from your existing Indi
 
 - **Temperature sensors** — Reads one or more sensors per zone and compares to your ideal temperature to determine how fast the fan should run. Supports multiple sensors (averaged together).
 - **Seasonal fan curves** — Each zone has four fan speed curves (spring, summer, fall, winter) that map temperature offset to fan speed. Configure them visually with an interactive drag-and-drop chart editor, or apply presets like Linear Ramp, Aggressive Cooling, Gentle Curve, and Off Until Hot.
+
+  ![Fan Speed Curve Editor](fan_curve_editor.png)
 - **HVAC awareness** — Boosts fan speed when AC is cooling, or reduces it when the heater is running.
 - **Humidity boost** — Increases fan speed when humidity is above a threshold.
 - **Nighttime mode** — Per-season quiet hours that clamp fan speed to a configured range so fans don't blast at 3am.
