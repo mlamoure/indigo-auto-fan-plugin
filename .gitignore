@@ -70,3 +70,6 @@ Auto Fan.indigoPlugin/Contents/Packages*
 
 # direnv
 .direnv
+
+# Claude Code project instructions (contains local paths)
+CLAUDE.md
