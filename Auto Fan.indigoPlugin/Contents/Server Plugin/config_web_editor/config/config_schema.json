@@ -59,7 +59,7 @@
           "x-enum-labels": ["Northern Hemisphere", "Southern Hemisphere"],
           "default": "north",
           "title": "Hemisphere",
-          "tooltip": "Used for automatic season detection. Northern: Spring=Mar-May, Summer=Jun-Aug. Southern: seasons are reversed."
+          "tooltip": "Used for automatic season detection. Northern: Spring=Mar-May, Summer=Jun-Aug, Fall=Sep-Nov, Winter=Dec-Feb. Southern: seasons are reversed."
         },
         "season_var_id": {
           "type": "integer",

@@ -17,7 +17,7 @@ The plugin automatically adjusts fan speed based on data from your existing Indi
 - **HVAC awareness** — Boosts fan speed when AC is cooling, or reduces it when the heater is running.
 - **Humidity boost** — Increases fan speed when humidity is above a threshold.
 - **Nighttime mode** — Per-season quiet hours that clamp fan speed to a configured range so fans don't blast at 3am.
-- **Presence detection** — Uses motion sensors to detect occupancy per zone, and a global home/away variable to limit fan speed when no one is home.
+- **Presence detection** — Uses a global home/away variable to limit fan speed when no one is home.
 - **Ideal temperature** — Per-season ideal temperature settings. Each season can independently use a static value, an Indigo variable, or thermostat setpoints. This lets you target a cooler ideal in summer and a warmer one in winter.
 - **Season detection** — Automatic detection based on calendar month with hemisphere support (Northern/Southern), or driven by an Indigo variable for full manual control.
 
