@@ -91,7 +91,7 @@
                         <div class="fan-curve-control">
                             <label>Temperature Range: &plusmn;<span id="range-display">3</span>&deg;</label>
                             <input type="range" id="temp-range-slider" min="1" max="5" value="3" step="1">
-                            <span class="fan-curve-helper">How far from target to extend the curve</span>
+                            <span class="fan-curve-helper">How far from ideal to extend the curve</span>
                         </div>
                         <div class="fan-curve-control">
                             <label>Control Points: <span id="points-display">7</span></label>
@@ -731,7 +731,7 @@
                 lblBelow.setAttribute('text-anchor', 'middle');
                 lblBelow.setAttribute('font-size', '11');
                 lblBelow.setAttribute('fill', '#4a90d9');
-                lblBelow.textContent = 'Below target';
+                lblBelow.textContent = 'Below ideal';
                 svg.appendChild(lblBelow);
 
                 var lblTarget = createSVGEl('text');
@@ -741,7 +741,7 @@
                 lblTarget.setAttribute('font-size', '11');
                 lblTarget.setAttribute('font-weight', 'bold');
                 lblTarget.setAttribute('fill', '#333');
-                lblTarget.textContent = 'Target';
+                lblTarget.textContent = 'Ideal';
                 svg.appendChild(lblTarget);
 
                 var lblAbove = createSVGEl('text');
@@ -750,7 +750,7 @@
                 lblAbove.setAttribute('text-anchor', 'middle');
                 lblAbove.setAttribute('font-size', '11');
                 lblAbove.setAttribute('fill', '#d94a4a');
-                lblAbove.textContent = 'Above target';
+                lblAbove.textContent = 'Above ideal';
                 svg.appendChild(lblAbove);
 
                 // Axis labels
@@ -760,7 +760,7 @@
                 xAxisLabel.setAttribute('text-anchor', 'middle');
                 xAxisLabel.setAttribute('font-size', '12');
                 xAxisLabel.setAttribute('fill', '#555');
-                xAxisLabel.textContent = 'Temperature offset from target';
+                xAxisLabel.textContent = 'Temperature offset from ideal';
                 svg.appendChild(xAxisLabel);
 
                 // Area fill
