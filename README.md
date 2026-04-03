@@ -20,6 +20,7 @@ The plugin automatically adjusts fan speed based on data from your existing Indi
 - **Presence detection** — Uses a global home/away variable to limit fan speed when no one is home.
 - **Ideal temperature** — Per-season ideal temperature settings. Each season can independently use a static value, an Indigo variable, or thermostat setpoints. This lets you target a cooler ideal in summer and a warmer one in winter.
 - **Season detection** — Automatic detection based on calendar month with hemisphere support (Northern/Southern), or driven by an Indigo variable for full manual control.
+- **Outdoor temperature** — Displays outdoor temperature from a configured weather device on each zone's Indigo device state.
 
 ### Manual Override (Zone Locking)
 
@@ -29,6 +30,10 @@ When someone manually changes a fan speed — via wall switch, Indigo UI, Siri, 
 - If presence is still detected when the lock is about to expire, it extends automatically (default: 30 minutes)
 - Locks can be cleared manually via the plugin menu or web interface
 - Lock duration and extension can be overridden per-zone
+
+### Smart Logging
+
+When multiple sensors for a zone update simultaneously, the plugin aggregates all changes within a 1-second window and produces a single consolidated log entry showing everything that changed and the resulting speed decision.
 
 ### Web Configuration
 

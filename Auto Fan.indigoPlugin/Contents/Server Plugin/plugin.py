@@ -153,7 +153,7 @@ class Plugin(indigo.PluginBase):
             self.log_level = int(values_dict.get("log_level", logging.INFO))
             self.logger.debug(f"{self.log_level=}")
             self.indigo_log_handler.setLevel(self.log_level)
-            self.plugin_file_handler.setLevel(self.log_level)
+            self.plugin_file_handler.setLevel(logging.DEBUG)
 
     def get_zone_list(self, filter="", values_dict=None, type_id="", target_id=0):
         menu_items = []

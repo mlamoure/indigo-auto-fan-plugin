@@ -13,9 +13,6 @@ try:
 except ImportError:
     pass
 
-# Grace period before unlocking when presence disappears
-LOCK_HOLD_GRACE_SECONDS = 30
-
 DEFAULT_FAN_CURVE = {
     "temperature_range": 3,
     "num_points": 7,
@@ -389,6 +386,43 @@ class FanZone(AutoFanBase):
             return 0.0
         return get_fan_speed_pct(self.fan_dev_id)
 
+    def _get_device_speed_info(self) -> dict:
+        """Get speed-related device info for SpeedControl devices.
+
+        Returns dict with speed_index, speed_index_count, speed_label
+        if the device is a SpeedControl. Empty dict otherwise.
+        """
+        if not self.fan_dev_id:
+            return {}
+        try:
+            dev = indigo.devices[self.fan_dev_id]
+            if hasattr(dev, "speedIndex") and hasattr(dev, "speedIndexCount"):
+                info = {
+                    "speed_index": int(dev.speedIndex),
+                    "speed_index_count": int(dev.speedIndexCount),
+                }
+                if "speedIndex.ui" in dev.states:
+                    info["speed_label"] = str(dev.states["speedIndex.ui"])
+                return info
+        except Exception:
+            pass
+        return {}
+
+    @staticmethod
+    def _pct_to_speed_index(pct: float, index_count: int) -> int:
+        """Map a percentage (0-100) to a discrete speed index."""
+        if index_count <= 1:
+            return 0
+        idx = round(pct * (index_count - 1) / 100.0)
+        return max(0, min(idx, index_count - 1))
+
+    @staticmethod
+    def _speed_index_to_pct(index: int, index_count: int) -> float:
+        """Map a speed index back to its canonical percentage."""
+        if index_count <= 1:
+            return 0.0
+        return round(index * 100.0 / (index_count - 1))
+
     def calculate_target_speed(self) -> SpeedPlan:
         """
         Calculate the target fan speed based on temperature delta, curves, and modifiers.
@@ -445,24 +479,53 @@ class FanZone(AutoFanBase):
         self._target_speed_pct = final_speed
 
         # Determine device changes
-        if self.fan_dev_id:
-            current_speed = self._get_current_speed_pct()
-            speed_int = round(final_speed)
-            current_int = round(current_speed)
-            if speed_int != current_int:
-                plan.device_changes.append(
-                    ("🌀", f"Set fan to {speed_int}% (was {current_int}%)")
-                )
+        if self.fan_dev_id and self.has_speed_change():
+            from_str, to_str = self.get_speed_change_description()
+            plan.device_changes.append(
+                ("🌀", f"Fan speed: {from_str} → {to_str}")
+            )
 
         return plan
 
     def has_speed_change(self) -> bool:
-        """Check if target speed differs from current fan speed."""
+        """Check if target speed differs from current fan speed.
+
+        For SpeedControl devices, compares at the speed index level to avoid
+        phantom changes when different percentages map to the same discrete
+        speed (e.g., 20% and 33% both map to index 1 on a 4-speed fan).
+        For Dimmer/Relay devices, compares rounded percentages.
+        """
         if not self.fan_dev_id:
             return False
+        info = self._get_device_speed_info()
+        if info.get("speed_index_count"):
+            current_idx = info["speed_index"]
+            target_idx = self._pct_to_speed_index(
+                self._target_speed_pct, info["speed_index_count"]
+            )
+            return current_idx != target_idx
         current = round(self._get_current_speed_pct())
         target = round(self._target_speed_pct)
         return current != target
+
+    def get_speed_change_description(self) -> tuple:
+        """Return (from_str, to_str) for logging the speed change.
+
+        For SpeedControl: uses index-mapped percentages (honest about what
+        the fan actually does). For Dimmer/Relay: uses rounded percentages.
+        """
+        info = self._get_device_speed_info()
+        if info.get("speed_index_count"):
+            count = info["speed_index_count"]
+            current_idx = info["speed_index"]
+            target_idx = self._pct_to_speed_index(self._target_speed_pct, count)
+            current_pct = self._speed_index_to_pct(current_idx, count)
+            target_pct = self._speed_index_to_pct(target_idx, count)
+            return (f"{current_pct}%", f"{target_pct}%")
+        return (
+            f"{round(self._get_current_speed_pct())}%",
+            f"{round(self._target_speed_pct)}%",
+        )
 
     def apply_speed_change(self) -> bool:
         """Apply the calculated target speed to the fan device."""

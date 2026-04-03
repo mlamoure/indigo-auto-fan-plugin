@@ -357,14 +357,8 @@ class AutoFanConfig(AutoFanBase):
         for idx, z in enumerate(self._zones):
             z.zone_index = idx
 
-        # Push initial states to Indigo
-        for z in self._zones:
-            z.sync_indigo_device()
-
-        # Calculate initial target speeds
-        for z in self._zones:
-            z.calculate_target_speed()
-
+        # Initial sync and speed calculation are handled by process_all_zones()
+        # in plugin.py after the agent is created — no need to duplicate here.
         self._debug_log("from_config_dict finished")
 
     @staticmethod

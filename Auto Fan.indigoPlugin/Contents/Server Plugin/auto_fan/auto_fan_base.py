@@ -12,6 +12,8 @@ class AutoFanBase:
         self.logger = logging.getLogger(logger_name)
 
     def _debug_log(self, message: str) -> None:
+        if not self.logger.isEnabledFor(logging.DEBUG):
+            return
         stack = inspect.stack()
         current_fn = stack[1].function if len(stack) > 1 else ""
         caller_fn = stack[2].function if len(stack) > 2 else ""

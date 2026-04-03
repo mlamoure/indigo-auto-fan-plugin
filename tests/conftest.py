@@ -34,7 +34,8 @@ class Variables(dict):
 
 class Device:
     def __init__(self, id, name="", onState=False, brightness=0, sensorValue=None,
-                 speedLevel=None, heatSetpoint=None, coolSetpoint=None, hvacMode=None):
+                 speedLevel=None, speedIndex=None, speedIndexCount=None,
+                 heatSetpoint=None, coolSetpoint=None, hvacMode=None):
         self.id = id
         self.name = name or f"Dev-{id}"
         self.onState = onState
@@ -42,6 +43,8 @@ class Device:
         self.brightness = brightness
         self.sensorValue = sensorValue if sensorValue is not None else brightness
         self.speedLevel = speedLevel
+        self.speedIndex = speedIndex
+        self.speedIndexCount = speedIndexCount
         self.heatSetpoint = heatSetpoint
         self.coolSetpoint = coolSetpoint
         self.hvacMode = hvacMode
@@ -54,6 +57,11 @@ class Device:
             self.states["sensorValue"] = sensorValue
         if speedLevel is not None:
             self.states["speedLevel"] = speedLevel
+        if speedIndex is not None:
+            self.states["speedIndex"] = speedIndex
+            self.states["speedIndex.ui"] = {0: "off", 1: "low", 2: "medium", 3: "high"}.get(speedIndex, str(speedIndex))
+        if speedIndexCount is not None:
+            self.states["speedIndexCount"] = speedIndexCount
         self.pluginId = ""
         self.deviceTypeId = ""
         self.pluginProps = {}
@@ -94,7 +102,19 @@ _speed_control_calls = []
 def _set_speed_level(dev_id, value=0):
     _speed_control_calls.append({"dev_id": dev_id, "value": value})
     if dev_id in indigo_stub.devices:
-        indigo_stub.devices[dev_id].speedLevel = value
+        dev = indigo_stub.devices[dev_id]
+        # Simulate Indigo's quantization for SpeedControl devices
+        if dev.speedIndexCount is not None and dev.speedIndexCount > 1:
+            count = dev.speedIndexCount
+            idx = round(value * (count - 1) / 100.0)
+            idx = max(0, min(idx, count - 1))
+            dev.speedIndex = idx
+            dev.speedLevel = round(idx * 100.0 / (count - 1))
+            dev.states["speedIndex"] = idx
+            dev.states["speedIndex.ui"] = {0: "off", 1: "low", 2: "medium", 3: "high"}.get(idx, str(idx))
+            dev.states["speedLevel"] = dev.speedLevel
+        else:
+            dev.speedLevel = value
 
 
 indigo_stub.speedcontrol = types.SimpleNamespace(

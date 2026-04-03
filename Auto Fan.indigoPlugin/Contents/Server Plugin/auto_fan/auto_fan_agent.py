@@ -8,6 +8,7 @@ from .auto_fan_config import AutoFanConfig
 from .fan_zone import FanZone
 from .seasons import get_current_season
 from .speed_curve import apply_modifiers, calculate_base_speed
+from .speed_plan import SpeedPlan
 
 try:
     import indigo
@@ -18,12 +19,61 @@ except ImportError:
 SPEED_CHANGE_KEYS = ["speedLevel", "brightness", "onState", "onOffState", "speedIndex"]
 
 
+def _extract_value(source: dict, keys: tuple):
+    """Return the first matching numeric value from source dict for the given keys."""
+    for k in keys:
+        if k in source:
+            try:
+                return float(source[k])
+            except (ValueError, TypeError):
+                return source[k]
+    return None
+
+
+def _format_change_line(change: dict) -> str:
+    """Format a single device change record for the consolidated log."""
+    role = change["role"]
+    old = change.get("old_value")
+    new = change.get("new_value")
+
+    if role == "temperature":
+        if old is not None and new is not None:
+            return f"🌡️ Temperature: {old:.1f}°F → {new:.1f}°F"
+        return f"🌡️ Temperature: {new:.1f}°F" if new else f"🌡️ {change['device_name']}: updated"
+
+    if role == "humidity":
+        if old is not None and new is not None:
+            return f"💧 Humidity: {old:.0f}% → {new:.0f}%"
+        return f"💧 Humidity: {new:.0f}%" if new else f"💧 {change['device_name']}: updated"
+
+    if role == "presence":
+        state = "detected" if new else "not detected"
+        return f"👤 Presence: {state}"
+
+    if role == "thermostat":
+        parts = []
+        for k, v in change.get("diff", {}).items():
+            parts.append(f"{k}: {v}")
+        return f"🏠 Thermostat: {', '.join(parts)}" if parts else f"🏠 Thermostat: updated"
+
+    if role == "weather":
+        if old is not None and new is not None:
+            return f"🌤️ Outdoor temp: {old:.1f}°F → {new:.1f}°F"
+        return f"🌤️ Outdoor temp: {new:.1f}°F" if new else f"🌤️ Weather: updated"
+
+    return f"📡 {change['device_name']}: updated"
+
+
 class AutoFanAgent(AutoFanBase):
     """
     Event router and zone processor for the Auto Fan plugin.
 
     Handles device/variable change events, routes them to the appropriate zones,
     manages lock timers, and coordinates fan speed changes.
+
+    Sensor changes are debounced per zone: rapid device updates within a 1-second
+    window are aggregated and processed once with a single consolidated log entry.
+    Fan device changes (manual overrides) are always handled immediately.
     """
 
     def __init__(self, config: AutoFanConfig) -> None:
@@ -31,11 +81,16 @@ class AutoFanAgent(AutoFanBase):
         self.config = config
         self._timers = {}
 
+        # Debounce state: aggregate rapid sensor changes per zone
+        self._pending_zone_changes = {}   # zone.name -> {dev_id: change_record}
+        self._debounce_timers = {}        # zone.name -> threading.Timer
+
         # Give each zone a backreference to the agent
         for z in self.config.zones:
             z._config.agent = self
 
-    def process_zone(self, zone: FanZone, trigger: Optional[str] = None) -> bool:
+    def process_zone(self, zone: FanZone, trigger: Optional[str] = None,
+                     pending_changes: Optional[list] = None) -> bool:
         """
         Main automation function for a single fan zone.
 
@@ -45,13 +100,12 @@ class AutoFanAgent(AutoFanBase):
             zone: The fan zone to process.
             trigger: Description of what triggered this evaluation
                 (e.g., "device 'Bedroom Temp'").
+            pending_changes: Aggregated device change records from debouncing.
+                When present, uses consolidated multi-line log format.
 
         Returns:
-            True if changes were applied, False otherwise.
+            True if the zone was evaluated successfully, False if skipped.
         """
-        # Sync device state
-        zone.sync_indigo_device()
-
         # GUARD: plugin globally disabled
         if not self.config.enabled:
             self._debug_log(
@@ -87,7 +141,8 @@ class AutoFanAgent(AutoFanBase):
 
         # Apply changes if speed differs
         if zone.has_speed_change():
-            self._log_zone_breakdown(zone, trigger)
+            self._log_speed_change(zone, plan, trigger=trigger,
+                                   pending_changes=pending_changes)
             zone.apply_speed_change()
         else:
             self._debug_log(f"Zone '{zone.name}': no speed change needed")
@@ -147,9 +202,9 @@ class AutoFanAgent(AutoFanBase):
                             self._timers[zone.name] = timer
                             timer.start()
             else:
-                # Sensor, thermostat, presence, humidity, or weather change
-                if self.process_zone(zone, trigger=f"device '{orig_dev.name}'"):
-                    processed.append(zone)
+                # Sensor, thermostat, presence, humidity, or weather change —
+                # queue for debounced processing to aggregate rapid updates
+                self._queue_zone_change(zone, orig_dev, diff)
 
         return processed
 
@@ -220,6 +275,124 @@ class AutoFanAgent(AutoFanBase):
                     self._timers[zone.name] = timer
                     timer.start()
 
+    # ---- Debounced Zone Processing ----
+
+    def _queue_zone_change(self, zone: FanZone, orig_dev, diff: dict) -> None:
+        """Queue a sensor change for debounced processing.
+
+        Aggregates rapid device updates within a 1-second window so the zone
+        is processed once with a single consolidated log entry instead of once
+        per device.
+        """
+        zone_name = zone.name
+        change = self._classify_device_change(zone, orig_dev, diff)
+
+        if zone_name not in self._pending_zone_changes:
+            self._pending_zone_changes[zone_name] = {}
+
+        # If same device updated again, keep original old_value, update new_value
+        existing = self._pending_zone_changes[zone_name].get(orig_dev.id)
+        if existing:
+            change["old_value"] = existing["old_value"]
+
+        self._pending_zone_changes[zone_name][orig_dev.id] = change
+
+        # Reset debounce timer (1-second window)
+        if zone_name in self._debounce_timers:
+            self._debounce_timers[zone_name].cancel()
+
+        timer = threading.Timer(1.0, self._process_debounced_zone, args=[zone])
+        timer.daemon = True
+        self._debounce_timers[zone_name] = timer
+        timer.start()
+
+    def _classify_device_change(self, zone: FanZone, orig_dev, diff: dict) -> dict:
+        """Classify a device change by its role in the zone and extract old/new values."""
+        dev_id = orig_dev.id
+        record = {"device_name": orig_dev.name, "device_id": dev_id,
+                  "role": "unknown", "old_value": None, "new_value": None}
+
+        temp_keys = ("sensorValue", "temperature", "temp")
+        humidity_keys = ("sensorValue", "humidity", "relativeHumidity")
+        weather_keys = ("feelslike", "temp", "temperature", "sensorValue")
+        presence_keys = ("onState", "onOffState")
+
+        if dev_id in zone.temp_sensor_dev_ids:
+            record["role"] = "temperature"
+            record["old_value"] = _extract_value(orig_dev.states, temp_keys)
+            record["new_value"] = _extract_value(diff, temp_keys) or record["old_value"]
+
+        elif dev_id in zone.humidity_dev_ids:
+            record["role"] = "humidity"
+            record["old_value"] = _extract_value(orig_dev.states, humidity_keys)
+            record["new_value"] = _extract_value(diff, humidity_keys) or record["old_value"]
+
+        elif dev_id in zone.presence_dev_ids:
+            record["role"] = "presence"
+            # Presence uses boolean values — extract raw, don't coerce to float
+            for k in presence_keys:
+                if k in orig_dev.states:
+                    record["old_value"] = bool(orig_dev.states[k])
+                    break
+            for k in presence_keys:
+                if k in diff:
+                    record["new_value"] = bool(diff[k])
+                    break
+
+        elif dev_id == zone.thermostat_dev_id:
+            record["role"] = "thermostat"
+            record["diff"] = {k: v for k, v in diff.items()
+                              if k in ("heatSetpoint", "coolSetpoint", "hvacOperationMode")}
+
+        elif dev_id == getattr(self.config, "weather_dev_id", None):
+            record["role"] = "weather"
+            record["old_value"] = _extract_value(orig_dev.states, weather_keys)
+            record["new_value"] = _extract_value(diff, weather_keys) or record["old_value"]
+
+        return record
+
+    def _process_debounced_zone(self, zone: FanZone) -> None:
+        """Process a zone after its debounce window closes.
+
+        Evaluates the zone once using current sensor data and logs a single
+        consolidated entry listing all device changes from the debounce window.
+        """
+        zone_name = zone.name
+        pending = self._pending_zone_changes.pop(zone_name, {})
+        self._debounce_timers.pop(zone_name, None)
+
+        self.process_zone(zone, pending_changes=list(pending.values()))
+
+    def _log_speed_change(self, zone: FanZone, plan: SpeedPlan,
+                          trigger: Optional[str] = None,
+                          pending_changes: Optional[list] = None) -> None:
+        """Log structured multi-line speed change at INFO level."""
+        from_str, to_str = zone.get_speed_change_description()
+        self.logger.info(f"🌀 Zone '{zone.name}': fan speed {from_str} → {to_str}")
+
+        # Triggers
+        if pending_changes:
+            for change in pending_changes:
+                self.logger.info(f"\t🔄 {_format_change_line(change)}")
+        elif trigger:
+            self.logger.info(f"\t🔄 Triggered by: {trigger}")
+
+        # Calculation
+        if plan.contributions:
+            self.logger.info("\t📝 Calculation:")
+            for emoji, msg in plan.contributions:
+                self.logger.info(f"\t\t{emoji} {msg}")
+
+        # Changes
+        if plan.device_changes:
+            self.logger.info("\t⚙️ Changes:")
+            for emoji, msg in plan.device_changes:
+                self.logger.info(f"\t\t{emoji} {msg}")
+
+        if self.logger.isEnabledFor(logging.DEBUG):
+            season = get_current_season(**self.config.get_season_kwargs())
+            self._log_zone_breakdown_full(zone, season, self.logger.debug)
+
     def get_zones(self) -> List[FanZone]:
         return self.config.zones
 
@@ -247,68 +420,31 @@ class AutoFanAgent(AutoFanBase):
                 exp = zone.lock_expiration.strftime('%H:%M:%S') if zone.lock_expiration else "N/A"
                 self.logger.info(f"🔒 Zone '{zone.name}' locked until {exp}")
 
-    def _log_zone_breakdown(self, zone: FanZone, trigger: Optional[str] = None) -> None:
-        """Log concise speed change at INFO, detailed breakdown at DEBUG."""
-        season = get_current_season(**self.config.get_season_kwargs())
-        current_speed = round(zone._get_current_speed_pct())
-        target_speed = round(zone._target_speed_pct)
-        current_temp = zone.get_current_temperature()
-        ideal = zone.get_ideal_temperature()
-
-        # Build concise modifier summary
-        delta = zone.get_temperature_delta()
-        modifier_contribs = []
-        if delta is not None:
-            _, modifier_contribs = apply_modifiers(
-                base_speed=calculate_base_speed(delta, zone.fan_curve),
-                modifiers=zone.modifiers,
-                is_hvac_cooling=zone.is_hvac_cooling(),
-                is_hvac_heating=zone.is_hvac_heating(),
-                humidity=zone.get_humidity(),
-                is_home=self.config.is_home(),
-                season=season,
-            )
-
-        parts = [f"Zone '{zone.name}' speed: {current_speed}% -> {target_speed}%"]
-        if trigger:
-            parts.append(f"Trigger: {trigger}")
-        if current_temp is not None and ideal is not None:
-            parts.append(f"Temp: {current_temp:.1f}F, Ideal: {ideal:.1f}F ({season})")
-        if modifier_contribs:
-            mod_strs = [msg for _, msg in modifier_contribs]
-            parts.append(f"Modifiers: {', '.join(mod_strs)}")
-
-        self.logger.info("  |  ".join(parts))
-
-        # Detailed breakdown at DEBUG
-        if self.logger.isEnabledFor(logging.DEBUG):
-            self._log_zone_breakdown_full(zone, season, self.logger.debug)
-
     def _log_zone_breakdown_full(self, zone: FanZone, season: str, log_fn) -> None:
         """Log detailed temperature/speed breakdown using the provided log function."""
         log = log_fn
-        log(f"  Zone '{zone.name}' — Detailed Breakdown")
+        log(f"🌀 Zone '{zone.name}' — Detailed Breakdown")
 
         # Ideal temperature
-        log("    Ideal Temperature:")
+        log("\t🌡️ Ideal Temperature:")
         for emoji, msg in zone.get_ideal_temperature_breakdown():
-            prefix = f"  {emoji} " if emoji else "  "
-            log(f"      {prefix}{msg}")
+            prefix = f"{emoji} " if emoji else ""
+            log(f"\t\t{prefix}{msg}")
 
         # Sensor readings
         readings = zone.get_sensor_readings()
         if readings:
-            log("    Sensor Readings:")
+            log("\t🌡️ Sensor Readings:")
             for dev_id, name, value in readings:
                 if value is not None:
-                    log(f"        '{name}' (id:{dev_id}): {value:.1f}F")
+                    log(f"\t\t'{name}' (id:{dev_id}): {value:.1f}°F")
                 else:
-                    log(f"        '{name}' (id:{dev_id}): unavailable")
+                    log(f"\t\t'{name}' (id:{dev_id}): unavailable")
             avg = zone.get_current_temperature()
             if avg is not None:
-                log(f"        Average: {avg:.1f}F")
+                log(f"\t\tAverage: {avg:.1f}°F")
         else:
-            log("    No temperature sensors configured")
+            log("\tNo temperature sensors configured")
 
         # Delta
         delta = zone.get_temperature_delta()
@@ -319,20 +455,20 @@ class AutoFanAgent(AutoFanBase):
                 interp = "cooler than ideal"
             else:
                 interp = "at ideal"
-            log(f"    Delta: {delta:+.1f}F ({interp})")
+            log(f"\t📊 Delta: {delta:+.1f}°F ({interp})")
         else:
-            log("    Delta: unavailable (missing sensor data)")
+            log("\t📊 Delta: unavailable (missing sensor data)")
             return
 
         # Season and fan curve
         curve = zone.fan_curve
         temp_range = curve.get("temperature_range", "?")
         num_points = len(curve.get("points", []))
-        log(f"    Season: {season}, curve range: +/-{temp_range}F, {num_points} points")
+        log(f"\t📈 Fan curve: {season}, range: ±{temp_range}°F, {num_points} points")
 
         # Base speed
         base_speed = calculate_base_speed(delta, curve)
-        log(f"    Base speed from curve: {base_speed:.1f}%")
+        log(f"\t📈 Base speed from curve: {base_speed:.1f}%")
 
         # Modifiers
         final_speed, modifier_contribs = apply_modifiers(
@@ -345,23 +481,23 @@ class AutoFanAgent(AutoFanBase):
             season=season,
         )
         if modifier_contribs:
-            log("    Modifiers:")
+            log("\t🔧 Modifiers:")
             for emoji, msg in modifier_contribs:
-                log(f"        {emoji} {msg}")
+                log(f"\t\t{emoji} {msg}")
         else:
-            log("    Modifiers: none active")
+            log("\t🔧 Modifiers: none active")
 
         # Final speed and current
-        log(f"    Final target speed: {final_speed:.0f}%")
-        current_speed = zone._get_current_speed_pct()
-        log(f"    Current fan speed: {current_speed:.0f}%")
+        from_str, to_str = zone.get_speed_change_description()
+        log(f"\t🎯 Final target speed: {to_str}")
+        log(f"\t📍 Current fan speed: {from_str}")
 
         # Status notes
         if not zone.enabled:
-            log("    Zone is DISABLED")
+            log("\t⏸️ Zone is DISABLED")
         if zone.locked:
             exp = zone.lock_expiration.strftime('%H:%M:%S') if zone.lock_expiration else "N/A"
-            log(f"    Zone is LOCKED until {exp}")
+            log(f"\t🔒 Zone is LOCKED until {exp}")
 
     def print_zone_breakdowns(self) -> None:
         """Log detailed temperature breakdown for all zones (always at INFO)."""
@@ -371,7 +507,6 @@ class AutoFanAgent(AutoFanBase):
             return
         for zone in zones:
             season = get_current_season(**self.config.get_season_kwargs())
-            self.logger.info(f"Zone '{zone.name}' — Temperature Breakdown")
             self._log_zone_breakdown_full(zone, season, self.logger.info)
 
     def enable_all_zones(self) -> None:
@@ -427,3 +562,7 @@ class AutoFanAgent(AutoFanBase):
         for t in self._timers.values():
             t.cancel()
         self._timers.clear()
+        for t in self._debounce_timers.values():
+            t.cancel()
+        self._debounce_timers.clear()
+        self._pending_zone_changes.clear()
