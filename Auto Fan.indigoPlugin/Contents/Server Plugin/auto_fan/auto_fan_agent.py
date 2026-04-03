@@ -466,11 +466,8 @@ class AutoFanAgent(AutoFanBase):
         num_points = len(curve.get("points", []))
         log(f"\t📈 Fan curve: {season}, range: ±{temp_range}°F, {num_points} points")
 
-        # Base speed
+        # Speed calculation
         base_speed = calculate_base_speed(delta, curve)
-        log(f"\t📈 Base speed from curve: {base_speed:.1f}%")
-
-        # Modifiers
         final_speed, modifier_contribs = apply_modifiers(
             base_speed=base_speed,
             modifiers=zone.modifiers,
@@ -480,17 +477,28 @@ class AutoFanAgent(AutoFanBase):
             is_home=self.config.is_home(),
             season=season,
         )
-        if modifier_contribs:
-            log("\t🔧 Modifiers:")
-            for emoji, msg in modifier_contribs:
-                log(f"\t\t{emoji} {msg}")
-        else:
-            log("\t🔧 Modifiers: none active")
 
-        # Final speed and current
-        from_str, to_str = zone.get_speed_change_description()
-        log(f"\t🎯 Final target speed: {to_str}")
-        log(f"\t📍 Current fan speed: {from_str}")
+        log("\tTarget speed calculation:")
+        log(f"\t\ttarget on fan speed curve: {base_speed:.1f}%")
+        if modifier_contribs:
+            total_delta = final_speed - base_speed
+            log(f"\t\tmodifiers: {base_speed:.1f}% -> {final_speed:.1f}%; total: {total_delta:+.1f}%")
+            for emoji, msg in modifier_contribs:
+                log(f"\t\t\t{emoji} {msg}")
+        else:
+            log("\t\tmodifiers: none active")
+
+        info = zone._get_device_speed_info()
+        if info.get("speed_index_count"):
+            count = info["speed_index_count"]
+            target_idx = zone._pct_to_speed_index(final_speed, count)
+            target_pct = zone._speed_index_to_pct(target_idx, count)
+            log(f"\t\tfinal target: {target_pct}% (speed index {target_idx}/{count - 1})")
+        else:
+            log(f"\t\tfinal target: {round(final_speed)}%")
+
+        from_str, _ = zone.get_speed_change_description()
+        log(f"\tCurrent fan speed is {from_str}")
 
         # Status notes
         if not zone.enabled:
