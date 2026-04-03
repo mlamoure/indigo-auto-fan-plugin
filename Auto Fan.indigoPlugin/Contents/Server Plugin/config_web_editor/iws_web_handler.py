@@ -403,8 +403,9 @@ class IWSWebHandler:
             if seasonal_ideal_temp_json:
                 try:
                     zone_data["seasonal_ideal_temp"] = json.loads(seasonal_ideal_temp_json)
-                except (json.JSONDecodeError, TypeError):
-                    pass
+                except (json.JSONDecodeError, TypeError) as e:
+                    logger.warning(f"Failed to parse seasonal_ideal_temp_json: {e}")
+                    flash["error"] = "Invalid ideal temperature data — please re-enter"
             # Remove stale flat ideal temp fields if present
             zone_data.pop("ideal_temp_value", None)
             zone_data.pop("ideal_temp_source", None)
@@ -430,8 +431,9 @@ class IWSWebHandler:
             if seasonal_curves_json:
                 try:
                     zone_data["seasonal_curves"] = json.loads(seasonal_curves_json)
-                except (json.JSONDecodeError, TypeError):
-                    pass
+                except (json.JSONDecodeError, TypeError) as e:
+                    logger.warning(f"Failed to parse seasonal_curves_json: {e}")
+                    flash["error"] = "Invalid fan curve data — please re-enter"
             zone_data.pop("fan_curve", None)
 
             # Process nighttime modifier from hidden JSON field (per-season)
@@ -441,8 +443,9 @@ class IWSWebHandler:
                     if "modifiers" not in zone_data:
                         zone_data["modifiers"] = {}
                     zone_data["modifiers"]["nighttime"] = json.loads(nighttime_json)
-                except (json.JSONDecodeError, TypeError):
-                    pass
+                except (json.JSONDecodeError, TypeError) as e:
+                    logger.warning(f"Failed to parse nighttime_json: {e}")
+                    flash["error"] = "Invalid nighttime modifier data — please re-enter"
 
             # Validate required fields
             if not zone_data.get("temp_sensor_dev_ids"):
@@ -460,6 +463,9 @@ class IWSWebHandler:
                 return self._render_zones(flash)
             else:
                 index = int(zone_id)
+                if index < 0 or index >= len(zones_data):
+                    flash["error"] = "Invalid zone index"
+                    return self._render_zones(flash)
                 zones_data[index] = zone_data
                 config_data["zones"] = zones_data
                 self.config_editor.save_config(config_data)

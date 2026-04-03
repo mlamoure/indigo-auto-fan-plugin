@@ -133,7 +133,10 @@ class FanZone(AutoFanBase):
             self.seasonal_curves = data["seasonal_curves"]
         elif "fan_curve" in data:
             curve = data["fan_curve"]
-            self.seasonal_curves = {s: dict(curve) for s in SEASONS}
+            self.seasonal_curves = {
+                s: {**curve, "points": [dict(p) for p in curve.get("points", [])]}
+                for s in SEASONS
+            }
         self.modifiers = data.get("modifiers", {})
 
         self.lock_duration = data.get("lock_duration", -1)
@@ -397,7 +400,10 @@ class FanZone(AutoFanBase):
         try:
             dev = indigo.devices[self.fan_dev_id]
             if is_baf_fan(dev):
-                baf_speed = int(dev.states.get("baf_speed", 0))
+                try:
+                    baf_speed = int(dev.states.get("baf_speed", 0))
+                except (ValueError, TypeError):
+                    baf_speed = 0
                 return {
                     "speed_index": baf_speed,
                     "speed_index_count": BAF_SPEED_COUNT,
@@ -410,8 +416,8 @@ class FanZone(AutoFanBase):
                 if "speedIndex.ui" in dev.states:
                     info["speed_label"] = str(dev.states["speedIndex.ui"])
                 return info
-        except Exception:
-            pass
+        except Exception as e:
+            self._debug_log(f"Error reading speed info for device {self.fan_dev_id}: {e}")
         return {}
 
     @staticmethod
@@ -715,7 +721,8 @@ class FanZone(AutoFanBase):
             try:
                 val = entry["getter"]()
                 state_list.append({"key": key, "value": val})
-            except Exception:
+            except Exception as e:
+                self._debug_log(f"Error getting state '{key}': {e}")
                 continue
 
         try:

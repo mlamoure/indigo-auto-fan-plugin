@@ -82,6 +82,7 @@ class AutoFanAgent(AutoFanBase):
         self._timers = {}
 
         # Debounce state: aggregate rapid sensor changes per zone
+        self._debounce_lock = threading.Lock()
         self._pending_zone_changes = {}   # zone.name -> {dev_id: change_record}
         self._debounce_timers = {}        # zone.name -> threading.Timer
 
@@ -287,24 +288,25 @@ class AutoFanAgent(AutoFanBase):
         zone_name = zone.name
         change = self._classify_device_change(zone, orig_dev, diff)
 
-        if zone_name not in self._pending_zone_changes:
-            self._pending_zone_changes[zone_name] = {}
+        with self._debounce_lock:
+            if zone_name not in self._pending_zone_changes:
+                self._pending_zone_changes[zone_name] = {}
 
-        # If same device updated again, keep original old_value, update new_value
-        existing = self._pending_zone_changes[zone_name].get(orig_dev.id)
-        if existing:
-            change["old_value"] = existing["old_value"]
+            # If same device updated again, keep original old_value, update new_value
+            existing = self._pending_zone_changes[zone_name].get(orig_dev.id)
+            if existing:
+                change["old_value"] = existing["old_value"]
 
-        self._pending_zone_changes[zone_name][orig_dev.id] = change
+            self._pending_zone_changes[zone_name][orig_dev.id] = change
 
-        # Reset debounce timer (1-second window)
-        if zone_name in self._debounce_timers:
-            self._debounce_timers[zone_name].cancel()
+            # Reset debounce timer (1-second window)
+            if zone_name in self._debounce_timers:
+                self._debounce_timers[zone_name].cancel()
 
-        timer = threading.Timer(1.0, self._process_debounced_zone, args=[zone])
-        timer.daemon = True
-        self._debounce_timers[zone_name] = timer
-        timer.start()
+            timer = threading.Timer(1.0, self._process_debounced_zone, args=[zone])
+            timer.daemon = True
+            self._debounce_timers[zone_name] = timer
+            timer.start()
 
     def _classify_device_change(self, zone: FanZone, orig_dev, diff: dict) -> dict:
         """Classify a device change by its role in the zone and extract old/new values."""
@@ -358,8 +360,9 @@ class AutoFanAgent(AutoFanBase):
         consolidated entry listing all device changes from the debounce window.
         """
         zone_name = zone.name
-        pending = self._pending_zone_changes.pop(zone_name, {})
-        self._debounce_timers.pop(zone_name, None)
+        with self._debounce_lock:
+            pending = self._pending_zone_changes.pop(zone_name, {})
+            self._debounce_timers.pop(zone_name, None)
 
         self.process_zone(zone, pending_changes=list(pending.values()))
 
@@ -540,8 +543,10 @@ class AutoFanAgent(AutoFanBase):
         for zone in self.config.zones:
             zone.sync_indigo_device()
 
-        # Clean up stale zone devices
+        # Clean up stale zone devices — collect IDs first to avoid
+        # modifying the device list during iteration
         active_indices = {zone.zone_index for zone in self.config.zones}
+        stale_devices = []
         for dev in indigo.devices:
             if (
                 dev.pluginId == "com.vtmikel.autofan"
@@ -549,15 +554,17 @@ class AutoFanAgent(AutoFanBase):
             ):
                 idx = int(dev.pluginProps.get("zone_index", -1))
                 if idx not in active_indices:
-                    try:
-                        indigo.device.delete(dev.id)
-                        self.logger.info(
-                            f"Deleted stale zone device: {dev.name} (index: {idx})"
-                        )
-                    except Exception as e:
-                        self.logger.error(
-                            f"Failed to delete stale zone device {dev.name}: {e}"
-                        )
+                    stale_devices.append((dev.id, dev.name, idx))
+        for dev_id, dev_name, idx in stale_devices:
+            try:
+                indigo.device.delete(dev_id)
+                self.logger.info(
+                    f"Deleted stale zone device: {dev_name} (index: {idx})"
+                )
+            except Exception as e:
+                self.logger.error(
+                    f"Failed to delete stale zone device {dev_name}: {e}"
+                )
 
     def refresh_indigo_device(self, dev_id: int) -> None:
         """Refresh a specific Indigo device's state."""
@@ -570,7 +577,8 @@ class AutoFanAgent(AutoFanBase):
         for t in self._timers.values():
             t.cancel()
         self._timers.clear()
-        for t in self._debounce_timers.values():
-            t.cancel()
+        with self._debounce_lock:
+            for t in self._debounce_timers.values():
+                t.cancel()
         self._debounce_timers.clear()
         self._pending_zone_changes.clear()
