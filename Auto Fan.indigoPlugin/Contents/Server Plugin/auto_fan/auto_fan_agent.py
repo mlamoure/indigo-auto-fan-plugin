@@ -16,7 +16,7 @@ except ImportError:
     pass
 
 # Device state keys that indicate a manual speed change on a fan
-SPEED_CHANGE_KEYS = ["speedLevel", "brightness", "onState", "onOffState", "speedIndex"]
+SPEED_CHANGE_KEYS = ["speedLevel", "brightness", "onState", "onOffState", "speedIndex", "baf_speed"]
 
 
 def _extract_value(source: dict, keys: tuple):

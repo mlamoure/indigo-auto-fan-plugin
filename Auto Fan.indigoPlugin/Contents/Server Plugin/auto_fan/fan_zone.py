@@ -6,7 +6,7 @@ from .auto_fan_base import AutoFanBase
 from .seasons import SEASONS, get_current_season
 from .speed_curve import apply_modifiers, calculate_base_speed
 from .speed_plan import SpeedPlan
-from .utils import get_fan_speed_pct, send_fan_speed
+from .utils import get_fan_speed_pct, send_fan_speed, is_baf_fan, BAF_SPEED_COUNT
 
 try:
     import indigo
@@ -396,6 +396,12 @@ class FanZone(AutoFanBase):
             return {}
         try:
             dev = indigo.devices[self.fan_dev_id]
+            if is_baf_fan(dev):
+                baf_speed = int(dev.states.get("baf_speed", 0))
+                return {
+                    "speed_index": baf_speed,
+                    "speed_index_count": BAF_SPEED_COUNT,
+                }
             if hasattr(dev, "speedIndex") and hasattr(dev, "speedIndexCount"):
                 info = {
                     "speed_index": int(dev.speedIndex),

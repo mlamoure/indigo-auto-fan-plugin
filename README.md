@@ -21,6 +21,8 @@ The plugin automatically adjusts fan speed based on data from your existing Indi
 - **Ideal temperature** — Per-season ideal temperature settings. Each season can independently use a static value, an Indigo variable, or thermostat setpoints. This lets you target a cooler ideal in summer and a warmer one in winter.
 - **Season detection** — Automatic detection based on calendar month with hemisphere support (Northern/Southern), or driven by an Indigo variable for full manual control.
 - **Outdoor temperature** — Displays outdoor temperature from a configured weather device on each zone's Indigo device state.
+- **BAF/Haiku fan support** — Automatically detects Big Ass Fans controlled by the BAF Control plugin and uses native 8-speed control (0-7) instead of Indigo's standard 4-speed mapping. Falls back gracefully if the BAF plugin is disabled. No configuration needed.
+- **Multi-device support** — Works with SpeedControl, Dimmer, Relay, and BAF/Haiku fan devices. Device type is detected automatically at runtime.
 
 ### Manual Override (Zone Locking)
 

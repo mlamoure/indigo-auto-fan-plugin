@@ -3,12 +3,21 @@ try:
 except ImportError:
     pass
 
+BAF_PLUGIN_ID = "com.webdeck.indigoplugin.bafcontrol"
+BAF_SPEED_COUNT = 8  # BAF fans support speeds 0-7
+
+
+def is_baf_fan(dev) -> bool:
+    """Check if a device is a BAF/Haiku fan with native 8-speed support."""
+    return (getattr(dev, "pluginId", "") == BAF_PLUGIN_ID
+            and getattr(dev, "deviceTypeId", "") == "bafFan")
+
 
 def send_fan_speed(fan_dev_id: int, target_speed_pct: float, logger=None) -> bool:
     """
     Set fan speed on an Indigo device.
 
-    Supports SpeedControl devices (native speed level) and Dimmer devices (brightness).
+    Supports BAF/Haiku (8-speed), SpeedControl, Dimmer, and Relay devices.
     For Relay devices, turns on if speed > 0, off if speed == 0.
 
     Args:
@@ -30,18 +39,27 @@ def send_fan_speed(fan_dev_id: int, target_speed_pct: float, logger=None) -> boo
     speed_int = round(target_speed_pct)
 
     try:
-        if hasattr(dev, "speedLevel"):
-            # SpeedControl device
-            if speed_int == 0:
-                indigo.speedcontrol.setSpeedLevel(fan_dev_id, value=0)
+        # Must check BAF before SpeedControl — BAF fans also have speedLevel
+        if is_baf_fan(dev):
+            baf_speed = max(0, min(7, round(target_speed_pct * 7 / 100.0)))
+            baf_plugin = indigo.server.getPlugin(BAF_PLUGIN_ID)
+            if baf_plugin.isEnabled():
+                baf_plugin.executeAction(
+                    "setBAFFanSpeed",
+                    deviceId=fan_dev_id,
+                    props={"speed": str(baf_speed)},
+                )
             else:
+                # BAF plugin disabled — fall back to standard SpeedControl
+                if logger:
+                    logger.warning(
+                        f"BAF plugin disabled, using standard SpeedControl for {dev.name}"
+                    )
                 indigo.speedcontrol.setSpeedLevel(fan_dev_id, value=speed_int)
+        elif hasattr(dev, "speedLevel"):
+            indigo.speedcontrol.setSpeedLevel(fan_dev_id, value=speed_int)
         elif hasattr(dev, "brightness"):
-            # Dimmer device (use brightness as speed proxy)
-            if speed_int == 0:
-                indigo.dimmer.setBrightness(fan_dev_id, value=0)
-            else:
-                indigo.dimmer.setBrightness(fan_dev_id, value=speed_int)
+            indigo.dimmer.setBrightness(fan_dev_id, value=speed_int)
         else:
             # Relay device (on/off only)
             if speed_int > 0:
@@ -71,7 +89,11 @@ def get_fan_speed_pct(fan_dev_id: int) -> float:
     """
     try:
         dev = indigo.devices[fan_dev_id]
-        if hasattr(dev, "speedLevel"):
+        # Must check BAF before SpeedControl — BAF fans also have speedLevel
+        if is_baf_fan(dev):
+            baf_speed = int(dev.states.get("baf_speed", 0))
+            return round(baf_speed * 100.0 / (BAF_SPEED_COUNT - 1))
+        elif hasattr(dev, "speedLevel"):
             return float(dev.speedLevel)
         elif hasattr(dev, "brightness"):
             return float(dev.brightness)

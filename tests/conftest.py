@@ -160,9 +160,38 @@ indigo_stub.variable = types.SimpleNamespace(
     )
 )
 
+class PluginStub:
+    """Stub for an Indigo plugin returned by server.getPlugin()."""
+
+    def __init__(self, plugin_id, enabled=True):
+        self.plugin_id = plugin_id
+        self._enabled = enabled
+        self.executed_actions = []
+
+    def isEnabled(self):
+        return self._enabled
+
+    def executeAction(self, action_id, deviceId=None, props=None):
+        self.executed_actions.append({
+            "action_id": action_id,
+            "deviceId": deviceId,
+            "props": props or {},
+        })
+
+
+_plugin_registry = {}
+
+
+def _get_plugin(plugin_id):
+    if plugin_id not in _plugin_registry:
+        _plugin_registry[plugin_id] = PluginStub(plugin_id)
+    return _plugin_registry[plugin_id]
+
+
 indigo_stub.server = types.SimpleNamespace(
     log=lambda msg, **kwargs: None,
     getReflectorURL=lambda: None,
+    getPlugin=_get_plugin,
 )
 
 indigo_stub.Device = Device
@@ -206,6 +235,7 @@ def fake_indigo():
     indigo_stub.devices.clear()
     indigo_stub.variables.clear()
     _speed_control_calls.clear()
+    _plugin_registry.clear()
     yield indigo_stub
 
 
@@ -213,3 +243,9 @@ def fake_indigo():
 def speed_control_calls():
     """Access to the log of speed control calls made during the test."""
     return _speed_control_calls
+
+
+@pytest.fixture
+def plugin_registry():
+    """Access to the mock plugin registry for BAF plugin tests."""
+    return _plugin_registry
