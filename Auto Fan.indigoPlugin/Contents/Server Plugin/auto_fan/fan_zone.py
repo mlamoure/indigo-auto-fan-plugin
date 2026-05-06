@@ -70,7 +70,10 @@ class FanZone(AutoFanBase):
         self._last_speed_command_time: Optional[datetime] = None
 
         # Zone state
-        self.enabled: bool = True
+        # `enabled` is exposed as a property below — backed by the Indigo zone
+        # device's onOffState so toggles in the Indigo UI take effect. The
+        # private `_enabled` is the fallback used until the device is known.
+        self._enabled: bool = True
         self.zone_index: int = 0
         self._indigo_dev_id: Optional[int] = None
         self._indigo_dev_create_failed: bool = False
@@ -101,6 +104,37 @@ class FanZone(AutoFanBase):
             {"key": "current_season", "label": "Current Season", "type": "string",
              "getter": lambda: get_current_season(**self._config.get_season_kwargs())},
         ]
+
+    @property
+    def enabled(self) -> bool:
+        """Whether this zone's automation is active.
+
+        Backed by the Indigo zone device's onState. Calls `self.indigo_dev`
+        to trigger zone_index-based adoption when `_indigo_dev_id` isn't
+        yet populated — needed because `auto_fan_conf.json` stores
+        `indigo_dev_id: null` and the link is rebuilt lazily on each
+        config reload.
+        """
+        dev = self.indigo_dev
+        if dev is not None:
+            try:
+                return bool(dev.onState)
+            except Exception:
+                pass
+        return self._enabled
+
+    @enabled.setter
+    def enabled(self, value: bool) -> None:
+        self._enabled = bool(value)
+        dev = self.indigo_dev
+        if dev is not None:
+            try:
+                if value:
+                    indigo.device.turnOn(dev.id)
+                else:
+                    indigo.device.turnOff(dev.id)
+            except Exception:
+                pass
 
     @property
     def _current_ideal_temp_config(self) -> dict:
@@ -141,7 +175,11 @@ class FanZone(AutoFanBase):
 
         self.lock_duration = data.get("lock_duration", -1)
         self.lock_extension_duration = data.get("lock_extension_duration", -1)
-        self.enabled = data.get("enabled", True)
+        # Assign the backing field directly rather than via the property
+        # setter — on reload the Indigo device's onState is the live truth
+        # (it reflects any UI toggles made since the last config save), so
+        # we don't want to clobber it with a possibly-stale JSON value.
+        self._enabled = data.get("enabled", True)
         self._indigo_dev_id = data.get("indigo_dev_id")
 
     # ---- Sensor Reading Methods ----

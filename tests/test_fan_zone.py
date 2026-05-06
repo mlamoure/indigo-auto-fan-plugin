@@ -307,6 +307,75 @@ class TestFanZoneSpeedCalc:
         assert plan.target_speed_pct == 0.0
         assert len(plan.exclusions) > 0
 
+    def test_enabled_tracks_indigo_device_onstate(self, fake_indigo):
+        """Toggling the zone Indigo device's onState immediately disables/enables the zone.
+
+        Regression: previously `enabled` was a stale in-memory attribute, so
+        toggling the device in Indigo's UI had no effect on automation.
+        """
+        zone, config = self._make_zone()
+
+        # Simulate a zone Indigo device existing and adopted by the zone
+        zone_dev = Device(500, name="Auto Fan - Test Zone", onState=True)
+        zone_dev.pluginId = "com.vtmikel.autofan"
+        zone_dev.deviceTypeId = "auto_fan_zone"
+        fake_indigo.devices[500] = zone_dev
+        zone._indigo_dev_id = 500
+
+        # Device on -> zone enabled
+        assert zone.enabled is True
+
+        # User toggles device off (mimics what plugin.actionControlDevice does)
+        zone_dev.updateStateOnServer("onOffState", False)
+        assert zone.enabled is False
+
+        # And back on
+        zone_dev.updateStateOnServer("onOffState", True)
+        assert zone.enabled is True
+
+    def test_enabled_setter_writes_to_indigo_device(self, fake_indigo):
+        """Setting zone.enabled flips the underlying Indigo device's onState."""
+        zone, config = self._make_zone()
+
+        zone_dev = Device(500, name="Auto Fan - Test Zone", onState=True)
+        zone_dev.pluginId = "com.vtmikel.autofan"
+        zone_dev.deviceTypeId = "auto_fan_zone"
+        fake_indigo.devices[500] = zone_dev
+        zone._indigo_dev_id = 500
+
+        zone.enabled = False
+        assert zone_dev.onState is False
+        assert zone.enabled is False
+
+        zone.enabled = True
+        assert zone_dev.onState is True
+        assert zone.enabled is True
+
+    def test_enabled_adopts_zone_device_by_zone_index(self, fake_indigo):
+        """Property triggers zone_index-based adoption when _indigo_dev_id is None.
+
+        Mirrors production: `auto_fan_conf.json` has `indigo_dev_id: null`,
+        so on every config reload the FanZone starts with no id. The
+        property must walk indigo.devices and adopt the matching zone
+        device on first access — otherwise it falls back to the JSON
+        `enabled` value and a disabled zone gets driven anyway.
+        """
+        zone, config = self._make_zone()
+        zone.zone_index = 1
+        assert zone._indigo_dev_id is None
+
+        zone_dev = Device(500, name="Auto Fan - Test Zone", onState=False)
+        zone_dev.pluginId = "com.vtmikel.autofan"
+        zone_dev.deviceTypeId = "auto_fan_zone"
+        zone_dev.pluginProps = {"zone_index": "1"}
+        fake_indigo.devices[500] = zone_dev
+
+        assert zone.enabled is False
+        assert zone._indigo_dev_id == 500
+
+        zone_dev.updateStateOnServer("onOffState", True)
+        assert zone.enabled is True
+
     def test_missing_temp_data(self, fake_indigo):
         fake_indigo.devices[300] = Device(300, name="Motion", onState=True)
 
