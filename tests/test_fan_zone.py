@@ -120,6 +120,60 @@ class TestFanZoneTemperature:
 
         assert zone.get_ideal_temperature() == 72.0  # (68 + 76) / 2
 
+    def test_ideal_temp_from_thermostat_cool_mode_uses_cool_setpoint(self, fake_indigo):
+        """In cool-only mode a stale heat setpoint must not skew the result."""
+        fake_indigo.devices[200] = Device(200, name="Temp", sensorValue=75.0)
+        fake_indigo.devices[200].states["sensorValue"] = 75.0
+        fake_indigo.devices[400] = Device(400, name="Thermostat", heatSetpoint=50.0,
+                                          coolSetpoint=73.0, hvacMode="Cool")
+
+        zone, config = self._make_zone()
+        zone.thermostat_dev_id = 400
+        for s in zone.seasonal_ideal_temp:
+            zone.seasonal_ideal_temp[s] = {"source": "thermostat", "value": 72.0, "var_id": None}
+
+        assert zone.get_ideal_temperature() == 73.0
+
+    def test_ideal_temp_from_thermostat_heat_mode_uses_heat_setpoint(self, fake_indigo):
+        fake_indigo.devices[200] = Device(200, name="Temp", sensorValue=75.0)
+        fake_indigo.devices[200].states["sensorValue"] = 75.0
+        fake_indigo.devices[400] = Device(400, name="Thermostat", heatSetpoint=68.0,
+                                          coolSetpoint=85.0, hvacMode="ProgramHeat")
+
+        zone, config = self._make_zone()
+        zone.thermostat_dev_id = 400
+        for s in zone.seasonal_ideal_temp:
+            zone.seasonal_ideal_temp[s] = {"source": "thermostat", "value": 72.0, "var_id": None}
+
+        assert zone.get_ideal_temperature() == 68.0
+
+    def test_ideal_temp_from_thermostat_auto_mode_uses_midpoint(self, fake_indigo):
+        fake_indigo.devices[200] = Device(200, name="Temp", sensorValue=75.0)
+        fake_indigo.devices[200].states["sensorValue"] = 75.0
+        fake_indigo.devices[400] = Device(400, name="Thermostat", heatSetpoint=68.0,
+                                          coolSetpoint=76.0, hvacMode="HeatCool")
+
+        zone, config = self._make_zone()
+        zone.thermostat_dev_id = 400
+        for s in zone.seasonal_ideal_temp:
+            zone.seasonal_ideal_temp[s] = {"source": "thermostat", "value": 72.0, "var_id": None}
+
+        assert zone.get_ideal_temperature() == 72.0  # (68 + 76) / 2
+
+    def test_ideal_temp_from_thermostat_cool_mode_missing_cool_setpoint(self, fake_indigo):
+        """Cool mode without a cool setpoint falls through to the existing chain."""
+        fake_indigo.devices[200] = Device(200, name="Temp", sensorValue=75.0)
+        fake_indigo.devices[200].states["sensorValue"] = 75.0
+        fake_indigo.devices[400] = Device(400, name="Thermostat", heatSetpoint=70.0,
+                                          hvacMode="Cool")
+
+        zone, config = self._make_zone()
+        zone.thermostat_dev_id = 400
+        for s in zone.seasonal_ideal_temp:
+            zone.seasonal_ideal_temp[s] = {"source": "thermostat", "value": 72.0, "var_id": None}
+
+        assert zone.get_ideal_temperature() == 70.0
+
     def test_ideal_temp_from_thermostat_heat_only(self, fake_indigo):
         fake_indigo.devices[200] = Device(200, name="Temp", sensorValue=75.0)
         fake_indigo.devices[200].states["sensorValue"] = 75.0
@@ -762,6 +816,36 @@ class TestIdealTemperatureBreakdown:
         assert "68.0" in all_text
         assert "76.0" in all_text
         assert "72.0" in all_text
+
+    def test_thermostat_cool_mode_shows_cool_setpoint(self, fake_indigo):
+        fake_indigo.devices[400] = Device(400, name="Main HVAC", heatSetpoint=50.0,
+                                          coolSetpoint=73.0, hvacMode="Cool")
+
+        zone, config = self._make_zone()
+        for s in zone.seasonal_ideal_temp:
+            zone.seasonal_ideal_temp[s] = {"source": "thermostat", "value": 72.0, "var_id": None}
+        zone.thermostat_dev_id = 400
+
+        lines = zone.get_ideal_temperature_breakdown()
+        all_text = " ".join(msg for _, msg in lines)
+        assert "HVAC mode: cool" in all_text
+        assert "73.0" in all_text
+        assert "Midpoint" not in all_text
+
+    def test_thermostat_heat_mode_shows_heat_setpoint(self, fake_indigo):
+        fake_indigo.devices[400] = Device(400, name="Main HVAC", heatSetpoint=68.0,
+                                          coolSetpoint=85.0, hvacMode="Heat")
+
+        zone, config = self._make_zone()
+        for s in zone.seasonal_ideal_temp:
+            zone.seasonal_ideal_temp[s] = {"source": "thermostat", "value": 72.0, "var_id": None}
+        zone.thermostat_dev_id = 400
+
+        lines = zone.get_ideal_temperature_breakdown()
+        all_text = " ".join(msg for _, msg in lines)
+        assert "HVAC mode: heat" in all_text
+        assert "68.0" in all_text
+        assert "Midpoint" not in all_text
 
     def test_thermostat_heat_only(self, fake_indigo):
         fake_indigo.devices[400] = Device(400, name="Heater", heatSetpoint=70.0)
