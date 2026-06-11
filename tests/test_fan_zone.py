@@ -174,6 +174,91 @@ class TestFanZoneTemperature:
 
         assert zone.get_ideal_temperature() == 70.0
 
+    def test_ideal_temp_max_cap_applied(self, fake_indigo):
+        """Cap below the resolved setpoint limits the ideal temp."""
+        fake_indigo.devices[200] = Device(200, name="Temp", sensorValue=75.0)
+        fake_indigo.devices[200].states["sensorValue"] = 75.0
+        fake_indigo.devices[400] = Device(400, name="Thermostat", heatSetpoint=50.0,
+                                          coolSetpoint=73.0, hvacMode="Cool")
+
+        zone, config = self._make_zone()
+        zone.thermostat_dev_id = 400
+        for s in zone.seasonal_ideal_temp:
+            zone.seasonal_ideal_temp[s] = {"source": "thermostat", "value": 72.0, "var_id": None,
+                                           "max_temp_enabled": True, "max_temp_value": 72.0}
+
+        assert zone.get_ideal_temperature() == 72.0
+
+    def test_ideal_temp_max_cap_not_reached(self, fake_indigo):
+        fake_indigo.devices[200] = Device(200, name="Temp", sensorValue=75.0)
+        fake_indigo.devices[200].states["sensorValue"] = 75.0
+        fake_indigo.devices[400] = Device(400, name="Thermostat", heatSetpoint=50.0,
+                                          coolSetpoint=73.0, hvacMode="Cool")
+
+        zone, config = self._make_zone()
+        zone.thermostat_dev_id = 400
+        for s in zone.seasonal_ideal_temp:
+            zone.seasonal_ideal_temp[s] = {"source": "thermostat", "value": 72.0, "var_id": None,
+                                           "max_temp_enabled": True, "max_temp_value": 80.0}
+
+        assert zone.get_ideal_temperature() == 73.0
+
+    def test_ideal_temp_max_cap_disabled(self, fake_indigo):
+        """Cap value is ignored while the checkbox is off."""
+        fake_indigo.devices[200] = Device(200, name="Temp", sensorValue=75.0)
+        fake_indigo.devices[200].states["sensorValue"] = 75.0
+        fake_indigo.devices[400] = Device(400, name="Thermostat", heatSetpoint=50.0,
+                                          coolSetpoint=73.0, hvacMode="Cool")
+
+        zone, config = self._make_zone()
+        zone.thermostat_dev_id = 400
+        for s in zone.seasonal_ideal_temp:
+            zone.seasonal_ideal_temp[s] = {"source": "thermostat", "value": 72.0, "var_id": None,
+                                           "max_temp_enabled": False, "max_temp_value": 70.0}
+
+        assert zone.get_ideal_temperature() == 73.0
+
+    def test_ideal_temp_max_cap_invalid_value_ignored(self, fake_indigo):
+        """Enabled cap with a missing/garbage value is ignored."""
+        fake_indigo.devices[200] = Device(200, name="Temp", sensorValue=75.0)
+        fake_indigo.devices[200].states["sensorValue"] = 75.0
+        fake_indigo.devices[400] = Device(400, name="Thermostat", heatSetpoint=50.0,
+                                          coolSetpoint=73.0, hvacMode="Cool")
+
+        zone, config = self._make_zone()
+        zone.thermostat_dev_id = 400
+        for s in zone.seasonal_ideal_temp:
+            zone.seasonal_ideal_temp[s] = {"source": "thermostat", "value": 72.0, "var_id": None,
+                                           "max_temp_enabled": True, "max_temp_value": None}
+        assert zone.get_ideal_temperature() == 73.0
+
+        for s in zone.seasonal_ideal_temp:
+            zone.seasonal_ideal_temp[s]["max_temp_value"] = "garbage"
+        assert zone.get_ideal_temperature() == 73.0
+
+    def test_ideal_temp_max_cap_ignored_for_static_source(self, fake_indigo):
+        fake_indigo.devices[200] = Device(200, name="Temp", sensorValue=75.0)
+        fake_indigo.devices[200].states["sensorValue"] = 75.0
+
+        zone, config = self._make_zone()
+        for s in zone.seasonal_ideal_temp:
+            zone.seasonal_ideal_temp[s] = {"source": "static", "value": 75.0, "var_id": None,
+                                           "max_temp_enabled": True, "max_temp_value": 70.0}
+
+        assert zone.get_ideal_temperature() == 75.0
+
+    def test_ideal_temp_max_cap_applies_to_fallback(self, fake_indigo):
+        """Cap also limits the static fallback when no thermostat is available."""
+        fake_indigo.devices[200] = Device(200, name="Temp", sensorValue=75.0)
+        fake_indigo.devices[200].states["sensorValue"] = 75.0
+
+        zone, config = self._make_zone()
+        for s in zone.seasonal_ideal_temp:
+            zone.seasonal_ideal_temp[s] = {"source": "thermostat", "value": 76.0, "var_id": None,
+                                           "max_temp_enabled": True, "max_temp_value": 72.0}
+
+        assert zone.get_ideal_temperature() == 72.0
+
     def test_ideal_temp_from_thermostat_heat_only(self, fake_indigo):
         fake_indigo.devices[200] = Device(200, name="Temp", sensorValue=75.0)
         fake_indigo.devices[200].states["sensorValue"] = 75.0
@@ -846,6 +931,63 @@ class TestIdealTemperatureBreakdown:
         assert "HVAC mode: heat" in all_text
         assert "68.0" in all_text
         assert "Midpoint" not in all_text
+
+    def test_thermostat_max_cap_applied_breakdown(self, fake_indigo):
+        fake_indigo.devices[400] = Device(400, name="Main HVAC", heatSetpoint=50.0,
+                                          coolSetpoint=76.0, hvacMode="Cool")
+
+        zone, config = self._make_zone()
+        for s in zone.seasonal_ideal_temp:
+            zone.seasonal_ideal_temp[s] = {"source": "thermostat", "value": 72.0, "var_id": None,
+                                           "max_temp_enabled": True, "max_temp_value": 73.0}
+        zone.thermostat_dev_id = 400
+
+        lines = zone.get_ideal_temperature_breakdown()
+        all_text = " ".join(msg for _, msg in lines)
+        assert "Maximum ideal cap: 73.0°" in all_text
+        assert "capped from 76.0°" in all_text
+
+    def test_thermostat_max_cap_not_reached_breakdown(self, fake_indigo):
+        fake_indigo.devices[400] = Device(400, name="Main HVAC", heatSetpoint=50.0,
+                                          coolSetpoint=73.0, hvacMode="Cool")
+
+        zone, config = self._make_zone()
+        for s in zone.seasonal_ideal_temp:
+            zone.seasonal_ideal_temp[s] = {"source": "thermostat", "value": 72.0, "var_id": None,
+                                           "max_temp_enabled": True, "max_temp_value": 80.0}
+        zone.thermostat_dev_id = 400
+
+        lines = zone.get_ideal_temperature_breakdown()
+        all_text = " ".join(msg for _, msg in lines)
+        assert "Maximum ideal cap: 80.0° (not reached)" in all_text
+        assert "capped from" not in all_text
+
+    def test_thermostat_max_cap_invalid_value_breakdown(self, fake_indigo):
+        fake_indigo.devices[400] = Device(400, name="Main HVAC", heatSetpoint=50.0,
+                                          coolSetpoint=73.0, hvacMode="Cool")
+
+        zone, config = self._make_zone()
+        for s in zone.seasonal_ideal_temp:
+            zone.seasonal_ideal_temp[s] = {"source": "thermostat", "value": 72.0, "var_id": None,
+                                           "max_temp_enabled": True, "max_temp_value": None}
+        zone.thermostat_dev_id = 400
+
+        lines = zone.get_ideal_temperature_breakdown()
+        all_text = " ".join(msg for _, msg in lines)
+        assert "no valid value" in all_text
+
+    def test_thermostat_max_cap_disabled_no_breakdown_line(self, fake_indigo):
+        fake_indigo.devices[400] = Device(400, name="Main HVAC", heatSetpoint=50.0,
+                                          coolSetpoint=73.0, hvacMode="Cool")
+
+        zone, config = self._make_zone()
+        for s in zone.seasonal_ideal_temp:
+            zone.seasonal_ideal_temp[s] = {"source": "thermostat", "value": 72.0, "var_id": None}
+        zone.thermostat_dev_id = 400
+
+        lines = zone.get_ideal_temperature_breakdown()
+        all_text = " ".join(msg for _, msg in lines)
+        assert "Maximum ideal cap" not in all_text
 
     def test_thermostat_heat_only(self, fake_indigo):
         fake_indigo.devices[400] = Device(400, name="Heater", heatSetpoint=70.0)

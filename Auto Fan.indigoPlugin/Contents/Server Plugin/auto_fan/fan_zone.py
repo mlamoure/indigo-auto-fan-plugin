@@ -49,7 +49,13 @@ class FanZone(AutoFanBase):
 
         # Temperature settings (per-season)
         self.seasonal_ideal_temp: dict = {
-            s: {"source": "static", "value": 72.0, "var_id": None}
+            s: {
+                "source": "static",
+                "value": 72.0,
+                "var_id": None,
+                "max_temp_enabled": False,
+                "max_temp_value": None,
+            }
             for s in SEASONS
         }
 
@@ -232,6 +238,36 @@ class FanZone(AutoFanBase):
                 readings.append((dev_id, f"Unknown (id:{dev_id})", None))
         return readings
 
+    def _resolve_thermostat_ideal(self, fallback: float) -> float:
+        """Resolve the uncapped thermostat-source ideal temperature."""
+        heat = self.get_heat_setpoint()
+        cool = self.get_cool_setpoint()
+        mode = self.get_hvac_mode()
+        # Respect the thermostat's operation mode: a thermostat in
+        # cool-only or heat-only mode may still report a stale setpoint
+        # for the inactive mode, which would skew the midpoint.
+        if "cool" in mode and "heat" not in mode and cool is not None:
+            return cool
+        if "heat" in mode and "cool" not in mode and heat is not None:
+            return heat
+        if heat is not None and cool is not None:
+            return (heat + cool) / 2.0
+        if heat is not None:
+            return heat
+        if cool is not None:
+            return cool
+        return fallback
+
+    @staticmethod
+    def _get_max_temp_cap(cfg: dict) -> Optional[float]:
+        """Return the enabled maximum ideal temp cap, or None if disabled/invalid."""
+        if not cfg.get("max_temp_enabled"):
+            return None
+        try:
+            return float(cfg["max_temp_value"])
+        except (KeyError, TypeError, ValueError):
+            return None
+
     def get_ideal_temperature(self) -> Optional[float]:
         """Get ideal temperature based on configured source for the current season."""
         cfg = self._current_ideal_temp_config
@@ -246,23 +282,11 @@ class FanZone(AutoFanBase):
                 pass
             return fallback
         elif source == "thermostat":
-            heat = self.get_heat_setpoint()
-            cool = self.get_cool_setpoint()
-            mode = self.get_hvac_mode()
-            # Respect the thermostat's operation mode: a thermostat in
-            # cool-only or heat-only mode may still report a stale setpoint
-            # for the inactive mode, which would skew the midpoint.
-            if "cool" in mode and "heat" not in mode and cool is not None:
-                return cool
-            if "heat" in mode and "cool" not in mode and heat is not None:
-                return heat
-            if heat is not None and cool is not None:
-                return (heat + cool) / 2.0
-            elif heat is not None:
-                return heat
-            elif cool is not None:
-                return cool
-            return fallback
+            resolved = self._resolve_thermostat_ideal(fallback)
+            cap = self._get_max_temp_cap(cfg)
+            if cap is not None and resolved > cap:
+                return cap
+            return resolved
         return fallback
 
     def get_ideal_temperature_breakdown(self) -> List[Tuple[str, str]]:
@@ -278,8 +302,6 @@ class FanZone(AutoFanBase):
         season = get_current_season(**self._config.get_season_kwargs())
 
         lines: List[Tuple[str, str]] = []
-        resolved = self.get_ideal_temperature()
-
         lines.append(("📅", f"Season: {season}"))
 
         if source == "variable" and var_id:
@@ -306,13 +328,22 @@ class FanZone(AutoFanBase):
                 lines.append(("", f"  HVAC mode: heat → using heat setpoint: {heat:.1f}°F"))
             elif heat is not None and cool is not None:
                 lines.append(("", f"  Heat setpoint: {heat:.1f}°F, Cool setpoint: {cool:.1f}°F"))
-                lines.append(("", f"  Midpoint: ({heat:.1f} + {cool:.1f}) / 2 = {resolved:.1f}°F"))
+                lines.append(("", f"  Midpoint: ({heat:.1f} + {cool:.1f}) / 2 = {(heat + cool) / 2.0:.1f}°F"))
             elif heat is not None:
                 lines.append(("", f"  Heat setpoint only: {heat:.1f}°F"))
             elif cool is not None:
                 lines.append(("", f"  Cool setpoint only: {cool:.1f}°F"))
             else:
                 lines.append(("⚠️", f"  No setpoints available, using fallback {fallback:.1f}°F"))
+            if cfg.get("max_temp_enabled"):
+                cap = self._get_max_temp_cap(cfg)
+                uncapped = self._resolve_thermostat_ideal(fallback)
+                if cap is None:
+                    lines.append(("⚠️", "  Maximum ideal cap enabled but no valid value — ignored"))
+                elif uncapped > cap:
+                    lines.append(("🧢", f"  Maximum ideal cap: {cap:.1f}° — capped from {uncapped:.1f}°"))
+                else:
+                    lines.append(("", f"  Maximum ideal cap: {cap:.1f}° (not reached)"))
         else:
             lines.append(("📌", f"Source: static = {fallback:.1f}°F"))
 

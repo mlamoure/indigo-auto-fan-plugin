@@ -71,6 +71,19 @@
                     <p style="font-style:italic; margin:8px 0;">
                         Uses the thermostat's heat setpoint, cool setpoint, or an average of both when in auto mode.
                     </p>
+                    <div class="form-field">
+                        <label>
+                            <input type="checkbox" id="ideal-temp-max-enabled">
+                            Limit maximum ideal temperature
+                        </label>
+                    </div>
+                    <div id="ideal-temp-max-wrap" style="display:none;">
+                        <div class="form-field">
+                            <label>Maximum Ideal Temperature</label>
+                            <input type="number" id="ideal-temp-max-value" step="0.5">
+                            <span class="fan-curve-helper">Same units as your thermostat (°F or °C). The ideal temperature will never exceed this.</span>
+                        </div>
+                    </div>
                 </div>
             </fieldset>
 
@@ -383,7 +396,9 @@
                     idealState[key] = {
                         source: (saved && saved.source) ? saved.source : idealDefaults.source,
                         value: (saved && saved.value !== undefined) ? saved.value : idealDefaults.value,
-                        var_id: (saved && saved.var_id) ? saved.var_id : idealDefaults.var_id
+                        var_id: (saved && saved.var_id) ? saved.var_id : idealDefaults.var_id,
+                        max_temp_enabled: !!(saved && saved.max_temp_enabled),
+                        max_temp_value: (saved && saved.max_temp_value != null) ? saved.max_temp_value : null
                     };
                 }
                 window._idealTempState = idealState;
@@ -395,12 +410,16 @@
                 var idealStaticWrap = document.getElementById('ideal-temp-static-wrap');
                 var idealVarWrap = document.getElementById('ideal-temp-variable-wrap');
                 var idealTstatWrap = document.getElementById('ideal-temp-thermostat-wrap');
+                var idealMaxEnabledChk = document.getElementById('ideal-temp-max-enabled');
+                var idealMaxValueInput = document.getElementById('ideal-temp-max-value');
+                var idealMaxWrap = document.getElementById('ideal-temp-max-wrap');
 
                 function updateIdealTempVisibility() {
                     var src = idealSourceSel.value;
                     idealStaticWrap.style.display = (src === 'static') ? '' : 'none';
                     idealVarWrap.style.display = (src === 'variable') ? '' : 'none';
                     idealTstatWrap.style.display = (src === 'thermostat') ? '' : 'none';
+                    idealMaxWrap.style.display = (src === 'thermostat' && idealMaxEnabledChk.checked) ? '' : 'none';
                 }
 
                 function loadIdealTempSeason(season) {
@@ -410,14 +429,19 @@
                     if (idealVarSel) {
                         idealVarSel.value = s.var_id || '';
                     }
+                    idealMaxEnabledChk.checked = !!s.max_temp_enabled;
+                    idealMaxValueInput.value = (s.max_temp_value != null) ? s.max_temp_value : '';
                     updateIdealTempVisibility();
                 }
 
                 function saveIdealTempSeason(season) {
+                    var maxVal = parseFloat(idealMaxValueInput.value);
                     idealState[season] = {
                         source: idealSourceSel.value,
                         value: parseFloat(idealValueInput.value) || 72.0,
-                        var_id: (idealVarSel && idealVarSel.value) ? parseInt(idealVarSel.value) : null
+                        var_id: (idealVarSel && idealVarSel.value) ? parseInt(idealVarSel.value) : null,
+                        max_temp_enabled: idealMaxEnabledChk.checked,
+                        max_temp_value: isNaN(maxVal) ? null : maxVal
                     };
                 }
 
@@ -431,6 +455,7 @@
                 }
 
                 idealSourceSel.addEventListener('change', updateIdealTempVisibility);
+                idealMaxEnabledChk.addEventListener('change', updateIdealTempVisibility);
 
                 document.querySelectorAll('.ideal-temp-season-tab').forEach(function(btn) {
                     btn.addEventListener('click', function() {
