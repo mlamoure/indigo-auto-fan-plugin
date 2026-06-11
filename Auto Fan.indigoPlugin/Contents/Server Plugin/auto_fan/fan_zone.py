@@ -248,6 +248,14 @@ class FanZone(AutoFanBase):
         elif source == "thermostat":
             heat = self.get_heat_setpoint()
             cool = self.get_cool_setpoint()
+            mode = self.get_hvac_mode()
+            # Respect the thermostat's operation mode: a thermostat in
+            # cool-only or heat-only mode may still report a stale setpoint
+            # for the inactive mode, which would skew the midpoint.
+            if "cool" in mode and "heat" not in mode and cool is not None:
+                return cool
+            if "heat" in mode and "cool" not in mode and heat is not None:
+                return heat
             if heat is not None and cool is not None:
                 return (heat + cool) / 2.0
             elif heat is not None:
@@ -284,6 +292,7 @@ class FanZone(AutoFanBase):
         elif source == "thermostat":
             heat = self.get_heat_setpoint()
             cool = self.get_cool_setpoint()
+            mode = self.get_hvac_mode()
             tstat_name = "Unknown"
             if self.thermostat_dev_id:
                 try:
@@ -291,7 +300,11 @@ class FanZone(AutoFanBase):
                 except Exception:
                     pass
             lines.append(("🌡️", f"Source: thermostat '{tstat_name}' (id:{self.thermostat_dev_id})"))
-            if heat is not None and cool is not None:
+            if "cool" in mode and "heat" not in mode and cool is not None:
+                lines.append(("", f"  HVAC mode: cool → using cool setpoint: {cool:.1f}°F"))
+            elif "heat" in mode and "cool" not in mode and heat is not None:
+                lines.append(("", f"  HVAC mode: heat → using heat setpoint: {heat:.1f}°F"))
+            elif heat is not None and cool is not None:
                 lines.append(("", f"  Heat setpoint: {heat:.1f}°F, Cool setpoint: {cool:.1f}°F"))
                 lines.append(("", f"  Midpoint: ({heat:.1f} + {cool:.1f}) / 2 = {resolved:.1f}°F"))
             elif heat is not None:
@@ -391,6 +404,18 @@ class FanZone(AutoFanBase):
             return float(dev.coolSetpoint) if hasattr(dev, "coolSetpoint") else None
         except Exception:
             return None
+
+    def get_hvac_mode(self) -> str:
+        """Get thermostat HVAC operation mode (e.g. heat, cool, heatcool, off), lowercased."""
+        if not self.thermostat_dev_id:
+            return "unknown"
+        try:
+            dev = indigo.devices[self.thermostat_dev_id]
+            if hasattr(dev, "hvacMode"):
+                return str(dev.hvacMode).lower()
+        except Exception:
+            pass
+        return "unknown"
 
     def get_hvac_state(self) -> str:
         """Get current HVAC state (heating, cooling, idle, etc.)."""
