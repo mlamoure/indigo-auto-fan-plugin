@@ -150,6 +150,60 @@ class TestAutoFanConfig:
         assert zone.seasonal_ideal_temp["summer"]["value"] == 74
         assert zone.thermostat_dev_id == 600
 
+    def test_load_zone_with_max_temp_cap_fields(self, fake_indigo):
+        """Max ideal temp cap fields round-trip through config load."""
+        seasonal_ideal = {
+            s: {"source": "thermostat", "value": 74, "var_id": None,
+                "max_temp_enabled": True, "max_temp_value": 73.5}
+            for s in ("spring", "summer", "fall", "winter")
+        }
+        config = self._make_config({
+            "plugin_config": {
+                "enabled": True,
+                "default_lock_duration": 60,
+                "default_lock_extension_duration": 30,
+            },
+            "zones": [
+                {
+                    "name": "Capped Zone",
+                    "fan_dev_id": 100,
+                    "temp_sensor_dev_ids": [200],
+                    "presence_dev_ids": [300],
+                    "seasonal_ideal_temp": seasonal_ideal,
+                    "thermostat_dev_id": 600,
+                }
+            ],
+        })
+        zone = config.zones[0]
+        assert zone.seasonal_ideal_temp["summer"]["max_temp_enabled"] is True
+        assert zone.seasonal_ideal_temp["summer"]["max_temp_value"] == 73.5
+
+    def test_load_zone_without_max_temp_cap_fields(self, fake_indigo):
+        """Old-style configs without cap keys still load and resolve ideal temps."""
+        seasonal_ideal = {
+            s: {"source": "thermostat", "value": 74, "var_id": None}
+            for s in ("spring", "summer", "fall", "winter")
+        }
+        config = self._make_config({
+            "plugin_config": {
+                "enabled": True,
+                "default_lock_duration": 60,
+                "default_lock_extension_duration": 30,
+            },
+            "zones": [
+                {
+                    "name": "Legacy Zone",
+                    "fan_dev_id": 100,
+                    "temp_sensor_dev_ids": [200],
+                    "presence_dev_ids": [300],
+                    "seasonal_ideal_temp": seasonal_ideal,
+                }
+            ],
+        })
+        zone = config.zones[0]
+        # No thermostat configured -> falls back to value; cap defaults off
+        assert zone.get_ideal_temperature() == 74
+
     def test_migration_preserves_new_fields_over_old(self, fake_indigo):
         """When both old and new fields exist, new fields win."""
         seasonal_ideal = {

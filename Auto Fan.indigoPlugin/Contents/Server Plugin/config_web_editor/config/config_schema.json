@@ -414,6 +414,15 @@
           "type": "integer",
           "x-drop-down": true,
           "title": "Ideal Temperature Variable"
+        },
+        "max_temp_enabled": {
+          "type": "boolean",
+          "default": false,
+          "title": "Enable Maximum Ideal Temperature"
+        },
+        "max_temp_value": {
+          "type": "number",
+          "title": "Maximum Ideal Temperature"
         }
       }
     },
