@@ -252,8 +252,7 @@ class TestApplyModifiers:
     def test_nighttime_effectively_disabled(self):
         """clamp_max_pct=100 and clamp_min_pct=0 means no clamping."""
         mods = {"nighttime": {"winter": {"clamp_min_pct": 0, "clamp_max_pct": 100, "night_start_hour": 22, "night_end_hour": 8}}}
-        with patch("auto_fan.speed_curve.datetime") as mock_dt:
-            mock_dt.now.return_value = datetime(2026, 1, 15, 23, 0, 0)
+        with patch("auto_fan.clock.now", return_value=datetime(2026, 1, 15, 23, 0, 0)):
             speed, contribs = apply_modifiers(75.0, mods, False, False, None, True, season="winter")
             assert speed == 75.0
             assert contribs == []
@@ -282,8 +281,7 @@ class TestApplyModifiers:
             "nighttime": {"winter": {"clamp_min_pct": 10, "clamp_max_pct": 50, "night_start_hour": 22, "night_end_hour": 8}},
             "away": {"clamp_max_pct": 20},
         }
-        with patch("auto_fan.speed_curve.datetime") as mock_dt:
-            mock_dt.now.return_value = datetime(2026, 1, 15, 23, 0, 0)
+        with patch("auto_fan.clock.now", return_value=datetime(2026, 1, 15, 23, 0, 0)):
             # 75 → clamped to 50 (nighttime) → capped at 20 (no presence)
             speed, contribs = apply_modifiers(75.0, mods, False, False, None, False, season="winter")
             assert speed == 20.0
@@ -298,8 +296,7 @@ class TestApplyModifiers:
             "nighttime": {"winter": {"clamp_min_pct": 0, "clamp_max_pct": 75, "night_start_hour": 22, "night_end_hour": 8}},
             "away": {"clamp_max_pct": 60},
         }
-        with patch("auto_fan.speed_curve.datetime") as mock_dt:
-            mock_dt.now.return_value = datetime(2026, 1, 15, 23, 0, 0)
+        with patch("auto_fan.clock.now", return_value=datetime(2026, 1, 15, 23, 0, 0)):
             # base 50 + 10 (cool) + 10 (heat) + 10 (humidity) = 80
             # → nighttime clamp [0-75] → 75
             # → no presence cap 60 → 60
@@ -315,8 +312,7 @@ class TestApplyModifiers:
                 "winter": {"clamp_min_pct": 0, "clamp_max_pct": 100, "night_start_hour": 22, "night_end_hour": 8},
             }
         }
-        with patch("auto_fan.speed_curve.datetime") as mock_dt:
-            mock_dt.now.return_value = datetime(2026, 7, 15, 23, 0, 0)
+        with patch("auto_fan.clock.now", return_value=datetime(2026, 7, 15, 23, 0, 0)):
             # Summer: clamp to 50
             speed, contribs = apply_modifiers(75.0, mods, False, False, None, True, season="summer")
             assert speed == 50.0
@@ -334,8 +330,7 @@ class TestApplyModifiers:
                 "summer": {"clamp_min_pct": 0, "clamp_max_pct": 50, "night_start_hour": 22, "night_end_hour": 8},
             }
         }
-        with patch("auto_fan.speed_curve.datetime") as mock_dt:
-            mock_dt.now.return_value = datetime(2026, 1, 15, 23, 0, 0)
+        with patch("auto_fan.clock.now", return_value=datetime(2026, 1, 15, 23, 0, 0)):
             # Winter not configured — should not clamp
             speed, contribs = apply_modifiers(75.0, mods, False, False, None, True, season="winter")
             assert speed == 75.0
@@ -351,48 +346,40 @@ class TestIsNighttime:
 
     def test_midnight_crossing_at_23(self):
         """22:00-08:00 range: 23:00 should be nighttime."""
-        with patch("auto_fan.speed_curve.datetime") as mock_dt:
-            mock_dt.now.return_value = self._mock_time(23, 0)
+        with patch("auto_fan.clock.now", return_value=self._mock_time(23, 0)):
             assert _is_nighttime(22, 8) is True
 
     def test_midnight_crossing_at_07(self):
         """22:00-08:00 range: 07:00 should be nighttime."""
-        with patch("auto_fan.speed_curve.datetime") as mock_dt:
-            mock_dt.now.return_value = self._mock_time(7, 0)
+        with patch("auto_fan.clock.now", return_value=self._mock_time(7, 0)):
             assert _is_nighttime(22, 8) is True
 
     def test_midnight_crossing_at_09(self):
         """22:00-08:00 range: 09:00 should NOT be nighttime."""
-        with patch("auto_fan.speed_curve.datetime") as mock_dt:
-            mock_dt.now.return_value = self._mock_time(9, 0)
+        with patch("auto_fan.clock.now", return_value=self._mock_time(9, 0)):
             assert _is_nighttime(22, 8) is False
 
     def test_midnight_crossing_at_21(self):
         """22:00-08:00 range: 21:00 should NOT be nighttime."""
-        with patch("auto_fan.speed_curve.datetime") as mock_dt:
-            mock_dt.now.return_value = self._mock_time(21, 0)
+        with patch("auto_fan.clock.now", return_value=self._mock_time(21, 0)):
             assert _is_nighttime(22, 8) is False
 
     def test_edge_exactly_at_start_hour(self):
         """22:00-08:00 range: exactly 22:00 should be nighttime."""
-        with patch("auto_fan.speed_curve.datetime") as mock_dt:
-            mock_dt.now.return_value = self._mock_time(22, 0)
+        with patch("auto_fan.clock.now", return_value=self._mock_time(22, 0)):
             assert _is_nighttime(22, 8) is True
 
     def test_edge_exactly_at_end_hour(self):
         """22:00-08:00 range: exactly 08:00 should NOT be nighttime (end is exclusive)."""
-        with patch("auto_fan.speed_curve.datetime") as mock_dt:
-            mock_dt.now.return_value = self._mock_time(8, 0)
+        with patch("auto_fan.clock.now", return_value=self._mock_time(8, 0)):
             assert _is_nighttime(22, 8) is False
 
     def test_non_crossing_range_inside(self):
         """06:00-18:00 range (no midnight cross): 12:00 should be nighttime."""
-        with patch("auto_fan.speed_curve.datetime") as mock_dt:
-            mock_dt.now.return_value = self._mock_time(12, 0)
+        with patch("auto_fan.clock.now", return_value=self._mock_time(12, 0)):
             assert _is_nighttime(6, 18) is True
 
     def test_non_crossing_range_outside(self):
         """06:00-18:00 range (no midnight cross): 20:00 should NOT be nighttime."""
-        with patch("auto_fan.speed_curve.datetime") as mock_dt:
-            mock_dt.now.return_value = self._mock_time(20, 0)
+        with patch("auto_fan.clock.now", return_value=self._mock_time(20, 0)):
             assert _is_nighttime(6, 18) is False

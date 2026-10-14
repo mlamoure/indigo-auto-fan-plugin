@@ -249,3 +249,32 @@ def speed_control_calls():
 def plugin_registry():
     """Access to the mock plugin registry for BAF plugin tests."""
     return _plugin_registry
+
+
+class FakeClock:
+    """Pin or advance the plugin's notion of "now" (auto_fan.clock.now)."""
+
+    def __init__(self, start):
+        self.current = start
+
+    def now(self):
+        return self.current
+
+    def set(self, when):
+        self.current = when
+
+    def advance(self, seconds=0, minutes=0, hours=0):
+        self.current = self.current + datetime.timedelta(
+            seconds=seconds, minutes=minutes, hours=hours
+        )
+        return self.current
+
+
+@pytest.fixture
+def fake_clock(monkeypatch):
+    """Freeze auto_fan.clock.now() at 2026-10-03 21:00 local; tests move it."""
+    from auto_fan import clock as clock_module
+
+    fc = FakeClock(datetime.datetime(2026, 10, 3, 21, 0, 0))
+    monkeypatch.setattr(clock_module, "now", fc.now)
+    return fc

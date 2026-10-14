@@ -430,8 +430,9 @@ class TestMigrateModifiers:
             assert season in night
             assert night[season]["clamp_max_pct"] == 50
             assert night[season]["clamp_min_pct"] == 0
-            assert night[season]["night_start_hour"] == 22
-            assert night[season]["night_end_hour"] == 8
+            # hours now live in the always-on night window, not the modifier
+            assert "night_start_hour" not in night[season]
+            assert zone_d["night_window"][season] == {"start_hour": 22, "end_hour": 8}
 
     def test_migrate_nighttime_disabled(self, fake_indigo):
         from auto_fan.auto_fan_config import AutoFanConfig
@@ -470,8 +471,8 @@ class TestMigrateModifiers:
             assert season in night
             assert night[season]["clamp_min_pct"] == 10
             assert night[season]["clamp_max_pct"] == 60
-            assert night[season]["night_start_hour"] == 21
-            assert night[season]["night_end_hour"] == 7
+            assert "night_start_hour" not in night[season]
+            assert zone_d["night_window"][season] == {"start_hour": 21, "end_hour": 7}
 
     def test_migrate_nighttime_already_per_season(self, fake_indigo):
         """Per-season nighttime passes through unchanged."""
@@ -490,7 +491,14 @@ class TestMigrateModifiers:
         import copy
         expected = copy.deepcopy(zone_d["modifiers"]["nighttime"])
         AutoFanConfig._migrate_zone(zone_d)
-        assert zone_d["modifiers"]["nighttime"] == expected
+        # clamps pass through; the per-season hours move to night_window
+        for season, exp in expected.items():
+            got = zone_d["modifiers"]["nighttime"][season]
+            assert got["clamp_min_pct"] == exp["clamp_min_pct"]
+            assert got["clamp_max_pct"] == exp["clamp_max_pct"]
+            assert "night_start_hour" not in got and "night_end_hour" not in got
+            assert zone_d["night_window"][season] == {
+                "start_hour": exp["night_start_hour"], "end_hour": exp["night_end_hour"]}
 
     def test_migrate_humidity_enabled(self, fake_indigo):
         from auto_fan.auto_fan_config import AutoFanConfig
@@ -634,7 +642,8 @@ class TestMigrateModifiers:
         # Nighttime (per-season)
         for season in ("spring", "summer", "fall", "winter"):
             assert mods["nighttime"][season]["clamp_max_pct"] == 50
-            assert mods["nighttime"][season]["night_start_hour"] == 22
+            assert "night_start_hour" not in mods["nighttime"][season]
+            assert zone_d["night_window"][season] == {"start_hour": 22, "end_hour": 8}
 
         # Humidity
         assert mods["humidity"]["speed_boost_pct"] == 20

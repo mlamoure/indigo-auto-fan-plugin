@@ -164,9 +164,10 @@ class Plugin(indigo.PluginBase):
     def _init_config_and_agent(self):
         reloading = hasattr(self, "_config_mtime")
         if reloading:
-            self.logger.warning(
-                "🔄 Configuration reloaded; all locks and zone state has been reset"
-            )
+            # Stop the old agent's timers so stale zone objects never act
+            if self._agent is not None:
+                self._agent.shutdown()
+            self.logger.info("🔄 Configuration reloaded; locks and comfort offsets carry over")
 
         empty_conf = "config_web_editor/config/auto_fan_conf_empty.json"
         config_dir = os.path.dirname(self._config_file_str)
@@ -179,9 +180,12 @@ class Plugin(indigo.PluginBase):
         self._config_path = conf_path
         self._config_mtime = os.path.getmtime(conf_path)
 
-        config = AutoFanConfig(conf_path)
+        # Runtime state directory: survives restarts and config saves
+        state_dir = os.path.join(config_dir, "state")
+        config = AutoFanConfig(conf_path, state_dir=state_dir)
         config.log_non_events = self._log_non_events
         self._agent = AutoFanAgent(config)
+        self._agent.reload_config_callback = self._init_config_and_agent
 
         if not config.enabled:
             config_dev_name = config.indigo_dev.name if config.indigo_dev else "Unknown"
@@ -218,6 +222,7 @@ class Plugin(indigo.PluginBase):
             self._iws_web_handler = IWSWebHandler(
                 config_editor=config_editor,
                 plugin_id=self.pluginId,
+                agent_provider=lambda: self._agent,
             )
 
             config_editor.start_cache_refresher()
@@ -239,6 +244,41 @@ class Plugin(indigo.PluginBase):
 
     def print_zone_breakdowns(self, action=None, dev=None, caller_waiting_for_result=None):
         self._agent.print_zone_breakdowns()
+
+    def print_override_summary(self, action=None, dev=None, caller_waiting_for_result=None):
+        self._agent.print_override_summary()
+
+    def print_recommendations(self, action=None, dev=None, caller_waiting_for_result=None):
+        self._agent.print_recommendations()
+
+    def run_learning_now(self, action=None, dev=None, caller_waiting_for_result=None):
+        new = self._agent.run_learning()
+        if not new:
+            self.logger.info("Comfort learning ran: nothing new to recommend right now")
+
+    def set_comfort_offset(self, action, dev=None, caller_waiting_for_result=None):
+        """Indigo action: temporary comfort offset on a zone."""
+        if self._agent is None:
+            return
+        props = action.props
+        try:
+            offset = float(props.get("offset", 0))
+        except (TypeError, ValueError):
+            self.logger.error(f"Set Comfort Offset: invalid offset '{props.get('offset')}'")
+            return
+        try:
+            hours = float(props.get("hours", 4) or 4)
+        except (TypeError, ValueError):
+            hours = 4.0
+        self._agent.set_comfort_offset(
+            props.get("zone_list"), offset, until=props.get("until", "daily_reset"),
+            hours=hours, source="Indigo action",
+        )
+
+    def clear_comfort_offset(self, action, dev=None, caller_waiting_for_result=None):
+        if self._agent is None:
+            return
+        self._agent.clear_comfort_offset(action.props.get("zone_list"), source="Indigo action")
 
     def change_zones_enabled(self, action, dev=None, caller_waiting_for_result=None):
         if self._agent is None:

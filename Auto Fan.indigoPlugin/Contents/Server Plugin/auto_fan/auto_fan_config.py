@@ -1,11 +1,13 @@
 import json
 import math
+import os
 from pathlib import Path
 from typing import List
 
 from .auto_fan_base import AutoFanBase
 from .fan_zone import FanZone
 from .seasons import SEASONS
+from .state_store import StateStore
 
 try:
     import indigo
@@ -162,6 +164,34 @@ def _migrate_modifiers(zone_d: dict) -> None:
         mods["nighttime"] = {s: dict(flat_values) for s in season_keys}
 
 
+def _migrate_night_window(zone_d: dict) -> None:
+    """Move the night hours out of the Nighttime modifier into the always-on
+    ``night_window`` so every consumer (night clamp, nighttime locks, comfort
+    offsets) reads one definition of "night" per season.
+
+    Existing ``night_window`` values win; hours still sitting in the modifier are
+    removed either way.
+    """
+    mods = zone_d.get("modifiers") or {}
+    night = mods.get("nighttime") or {}
+    window = zone_d.get("night_window")
+    if not isinstance(window, dict):
+        window = {}
+    for season in SEASONS:
+        mod = night.get(season) if isinstance(night, dict) else None
+        start = end = None
+        if isinstance(mod, dict):
+            start = mod.pop("night_start_hour", None)
+            end = mod.pop("night_end_hour", None)
+        w = window.get(season)
+        if not isinstance(w, dict):
+            w = {}
+        w.setdefault("start_hour", start if start is not None else 22)
+        w.setdefault("end_hour", end if end is not None else 8)
+        window[season] = w
+    zone_d["night_window"] = window
+
+
 class AutoFanConfig(AutoFanBase):
     """
     Configuration handler for the Auto Fan plugin.
@@ -185,14 +215,22 @@ class AutoFanConfig(AutoFanBase):
                     f"AutoFanConfig: error syncing global config after '{key}' changed"
                 )
 
-    def __init__(self, config: str) -> None:
+    def __init__(self, config: str, state_dir: str = None) -> None:
         super().__init__()
         self.log_non_events = False
+
+        # Runtime state (locks, offsets, override records) lives beside the
+        # config in <config dir>/state/. None keeps it in memory (tests).
+        self.state_store = StateStore(state_dir)
 
         # Global config
         self._indigo_dev_id = None
         self._default_lock_duration = 60
         self._default_lock_extension_duration = 30
+        self._hold_locks_at_night = True
+        self._max_lock_hours = 10
+        self._daily_reset_hour = 10
+        self._learning_mode = "suggest"
         self._weather_dev_id = None
         self._away_var_id = None
         self._away_var_home_value = "true"
@@ -259,6 +297,47 @@ class AutoFanConfig(AutoFanBase):
     @default_lock_extension_duration.setter
     def default_lock_extension_duration(self, value: int) -> None:
         self._default_lock_extension_duration = value
+
+    @property
+    def hold_locks_at_night(self) -> bool:
+        return self._hold_locks_at_night
+
+    @hold_locks_at_night.setter
+    def hold_locks_at_night(self, value) -> None:
+        if isinstance(value, str):
+            value = value.strip().lower() in ("true", "1", "yes", "on", "y")
+        self._hold_locks_at_night = bool(value)
+
+    @property
+    def max_lock_hours(self) -> int:
+        return self._max_lock_hours
+
+    @max_lock_hours.setter
+    def max_lock_hours(self, value) -> None:
+        try:
+            self._max_lock_hours = max(1, int(value))
+        except (TypeError, ValueError):
+            self._max_lock_hours = 10
+
+    @property
+    def daily_reset_hour(self) -> int:
+        return self._daily_reset_hour
+
+    @daily_reset_hour.setter
+    def daily_reset_hour(self, value) -> None:
+        try:
+            self._daily_reset_hour = max(0, min(23, int(value)))
+        except (TypeError, ValueError):
+            self._daily_reset_hour = 10
+
+    @property
+    def learning_mode(self) -> str:
+        return self._learning_mode
+
+    @learning_mode.setter
+    def learning_mode(self, value) -> None:
+        value = str(value or "suggest").strip().lower()
+        self._learning_mode = value if value in ("suggest", "off") else "suggest"
 
     @property
     def weather_dev_id(self) -> int:
@@ -333,7 +412,21 @@ class AutoFanConfig(AutoFanBase):
     def load_config(self) -> None:
         with open(self._config_file, "r", encoding="utf-8") as f:
             data = json.load(f)
+        before = json.dumps(data, sort_keys=True)
         self.from_config_dict(data)
+        # from_config_dict migrates the zone dicts in place. Write the migrated
+        # shape back once so the web editor (which reads the raw file) shows the
+        # same values the plugin runs with, e.g. a zone's Night Window hours.
+        if json.dumps(data, sort_keys=True) != before:
+            try:
+                from .config_writer import save_config_with_backup
+                backup = save_config_with_backup(self._config_file, data)
+                self.logger.info(
+                    "🔧 Config migrated to the current schema and saved"
+                    + (f" (previous copy: {os.path.basename(backup)})" if backup else "")
+                )
+            except Exception as e:
+                self.logger.error(f"Could not save the migrated config: {e}")
 
     def from_config_dict(self, data: dict) -> None:
         self._debug_log("from_config_dict called")
@@ -416,6 +509,9 @@ class AutoFanConfig(AutoFanBase):
 
         # Migrate old-format modifiers (enabled + numeric) → dropdown integers
         _migrate_modifiers(zone_d)
+
+        # Night hours: modifiers.nighttime.<season> → night_window.<season>
+        _migrate_night_window(zone_d)
 
     @property
     def zones(self) -> List[FanZone]:

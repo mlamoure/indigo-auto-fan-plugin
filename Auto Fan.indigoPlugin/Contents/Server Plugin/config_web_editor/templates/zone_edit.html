@@ -14,6 +14,78 @@
 <div id="container">
     <div id="content">
         {% from "_form_macros.html" import render_field, save_overlay %}
+        {# The learner recommends comfort offsets and lock settings (and reverts of either). #}
+        {% set lock_settings = ['lock_duration', 'hold_locks_at_night'] %}
+        {% set open_recs = zone_status.recommendations if zone_status and zone_status.recommendations else [] %}
+        {% set lock_recs = open_recs | selectattr('setting', 'in', lock_settings) | list %}
+        {% set comfort_recs = open_recs | rejectattr('setting', 'in', lock_settings) | list %}
+        {% macro rec_cards(recs, box_id) %}
+        {% if recs %}
+        <div class="recommendations" id="{{ box_id }}">
+            <div class="rec-heading">💡 Recommendations ({{ recs|length }}) <span class="beta-tag">beta</span></div>
+            {% for rec in recs %}
+            <div class="rec-card">
+                <div class="rec-title">{{ rec.title }}</div>
+                <div class="rec-text">{{ rec.text }}</div>
+                <div class="rec-change">
+                    {{ rec.setting_label }}: {{ rec.current_label }} → <strong>{{ rec.proposed_label }}</strong>
+                    <span class="rec-actions">
+                        <button type="submit" form="rec-form-{{ rec.id }}" name="action" value="apply_recommendation" class="btn btn-small">Apply</button>
+                        <button type="submit" form="rec-form-{{ rec.id }}" name="action" value="dismiss_recommendation" class="btn btn-small btn-muted">Dismiss</button>
+                    </span>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+        {% endif %}
+        {% endmacro %}
+        {% if flash and (flash.message or flash.error) %}
+        <div class="flash {{ 'flash-error' if flash.error else 'flash-ok' }}">{{ flash.error or flash.message }}</div>
+        {% endif %}
+
+        {% if zone_status %}
+        {# Live state of the zone: a strip above the settings form. Its controls post to their own endpoint. #}
+        <div class="status-strip" id="zone-now">
+            <div class="status-strip-title">{{ zone.get('name', 'Zone') }} — right now</div>
+            <div class="status-strip-line">
+                Fan <strong id="now-fan">{{ zone_status.current_speed_pct|round|int }}%</strong>
+                {% if zone_status.current_temperature is not none %} · room <span id="now-room">{{ "%.1f"|format(zone_status.current_temperature) }}°</span>{% endif %}
+                {% if zone_status.effective_ideal is not none %} · ideal <strong id="now-ideal">{{ "%.1f"|format(zone_status.effective_ideal) }}°</strong>
+                    <span class="muted">(configured <span id="now-configured">{{ "%.1f"|format(zone_status.configured_ideal) }}°</span><span id="now-offsets">{% if zone_status.standing_offset %}, standing {{ "%+.1f"|format(zone_status.standing_offset) }}°{% endif %}{% if zone_status.temporary_offset is not none %}, temporary {{ "%+.1f"|format(zone_status.temporary_offset) }}°{% endif %}</span>)</span>{% endif %}
+                 · <span id="now-period">{{ 'night' if zone_status.is_night else 'day' }}</span>
+            </div>
+            <div class="status-strip-line" id="now-lock">
+                Lock:
+                {% if zone_status.locked %}
+                    🔒 until {{ zone_status.lock_expiration }}{% if zone_status.lock_rule == 'night_end' %} (night window){% else %} ({{ zone_status.lock_reason }}){% endif %}
+                    <form method="POST" action="{{ url_for('zone_status', zone_id=index) }}" style="display:inline; margin:0 0 0 8px;">
+                        <input type="hidden" name="action" value="clear_lock">
+                        <button type="submit" class="btn btn-small btn-muted">Clear</button>
+                    </form>
+                {% else %}
+                    none — automation active
+                {% endif %}
+            </div>
+            {% if zone_status.recommendations %}
+            <div class="status-strip-line" id="now-recs">
+                💡 {{ zone_status.recommendations|length }} open recommendation{{ 's' if zone_status.recommendations|length != 1 }} (beta) —
+                {% if comfort_recs %}<a href="#comfort-recommendations">Comfort Offset ↓</a>{% endif %}
+                {% if comfort_recs and lock_recs %} · {% endif %}
+                {% if lock_recs %}<a href="#lock-recommendations">Lock Behavior ↓</a>{% endif %}
+            </div>
+            {% endif %}
+        </div>
+
+        {# Recommendations show in the section that owns their setting. The cards
+           sit inside the settings form, and forms cannot nest, so each card's
+           buttons post this small form through their form="" attribute. #}
+        {% for rec in zone_status.recommendations %}
+        <form method="POST" action="{{ url_for('zone_status', zone_id=index) }}" id="rec-form-{{ rec.id }}">
+            <input type="hidden" name="rec_id" value="{{ rec.id }}">
+        </form>
+        {% endfor %}
+        {% endif %}
+
         <form method="POST" id="zone-config-form" class="edit-form">
             {# Preserve internal fields as hidden inputs so they survive form submission #}
             {% if zone_form.enabled is defined %}
@@ -26,9 +98,82 @@
             <input type="hidden" name="indigo_dev_id" value="{{ zone_form.indigo_dev_id.data or '' }}">
             {% endif %}
 
-            {% for field in zone_form if field.name not in ['submit', 'csrf_token', 'fan_curve', 'seasonal_curves', 'seasonal_ideal_temp', 'speed_curves', 'modifiers', 'global_behavior_variables_map', 'enabled', 'indigo_dev_id', 'zone_index', 'ideal_temp_value', 'ideal_temp_var_id', 'ideal_temp_source', 'lock_duration', 'lock_extension_duration'] %}
+            {% for field in zone_form if field.name not in ['submit', 'csrf_token', 'fan_curve', 'seasonal_curves', 'seasonal_ideal_temp', 'speed_curves', 'modifiers', 'night_window', 'comfort_offset', 'learning_mode', 'global_behavior_variables_map', 'enabled', 'indigo_dev_id', 'zone_index', 'ideal_temp_value', 'ideal_temp_var_id', 'ideal_temp_source', 'lock_duration', 'lock_extension_duration', 'hold_locks_at_night'] %}
             {{ render_field(field) }}
             {% endfor %}
+
+            {# Night Window Section (per-season, always on) #}
+            <fieldset class="group-box">
+                <legend>Night Window</legend>
+                <input type="hidden" name="night_window_json" id="night-window-json">
+                <p style="font-style:italic; margin:4px 0 8px 0;">
+                    When this zone counts as night. Used by the nighttime speed limits, by nighttime locks, and to split comfort offsets into day and night.
+                </p>
+                <div class="season-tabs" id="night-window-season-tabs">
+                    <button type="button" class="season-tab night-window-season-tab" data-season="spring">Spring</button>
+                    <button type="button" class="season-tab night-window-season-tab" data-season="summer">Summer</button>
+                    <button type="button" class="season-tab night-window-season-tab" data-season="fall">Fall</button>
+                    <button type="button" class="season-tab night-window-season-tab" data-season="winter">Winter</button>
+                </div>
+                <div class="form-field">
+                    <label>Night Starts</label>
+                    <select id="night-window-start_hour">
+                            <option value="0">12:00 AM</option>
+                            <option value="1">1:00 AM</option>
+                            <option value="2">2:00 AM</option>
+                            <option value="3">3:00 AM</option>
+                            <option value="4">4:00 AM</option>
+                            <option value="5">5:00 AM</option>
+                            <option value="6">6:00 AM</option>
+                            <option value="7">7:00 AM</option>
+                            <option value="8">8:00 AM</option>
+                            <option value="9">9:00 AM</option>
+                            <option value="10">10:00 AM</option>
+                            <option value="11">11:00 AM</option>
+                            <option value="12">12:00 PM</option>
+                            <option value="13">1:00 PM</option>
+                            <option value="14">2:00 PM</option>
+                            <option value="15">3:00 PM</option>
+                            <option value="16">4:00 PM</option>
+                            <option value="17">5:00 PM</option>
+                            <option value="18">6:00 PM</option>
+                            <option value="19">7:00 PM</option>
+                            <option value="20">8:00 PM</option>
+                            <option value="21">9:00 PM</option>
+                            <option value="22">10:00 PM</option>
+                            <option value="23">11:00 PM</option>
+                    </select>
+                </div>
+                <div class="form-field">
+                    <label>Night Ends</label>
+                    <select id="night-window-end_hour">
+                            <option value="0">12:00 AM</option>
+                            <option value="1">1:00 AM</option>
+                            <option value="2">2:00 AM</option>
+                            <option value="3">3:00 AM</option>
+                            <option value="4">4:00 AM</option>
+                            <option value="5">5:00 AM</option>
+                            <option value="6">6:00 AM</option>
+                            <option value="7">7:00 AM</option>
+                            <option value="8">8:00 AM</option>
+                            <option value="9">9:00 AM</option>
+                            <option value="10">10:00 AM</option>
+                            <option value="11">11:00 AM</option>
+                            <option value="12">12:00 PM</option>
+                            <option value="13">1:00 PM</option>
+                            <option value="14">2:00 PM</option>
+                            <option value="15">3:00 PM</option>
+                            <option value="16">4:00 PM</option>
+                            <option value="17">5:00 PM</option>
+                            <option value="18">6:00 PM</option>
+                            <option value="19">7:00 PM</option>
+                            <option value="20">8:00 PM</option>
+                            <option value="21">9:00 PM</option>
+                            <option value="22">10:00 PM</option>
+                            <option value="23">11:00 PM</option>
+                    </select>
+                </div>
+            </fieldset>
 
             {# Ideal Temperature Section (per-season) #}
             <fieldset class="group-box">
@@ -85,6 +230,81 @@
                         </div>
                     </div>
                 </div>
+            </fieldset>
+
+            {# Comfort Offset Section (standing, per-season day/night) #}
+            <fieldset class="group-box">
+                <legend>Comfort Offset</legend>
+                <input type="hidden" name="comfort_offset_json" id="comfort-offset-json">
+                <p style="font-style:italic; margin:4px 0 8px 0;">
+                    Degrees added to the ideal temperature above. Negative means a cooler room. The standing values are per season and day/night and are saved with this form; "right now" is a temporary offset that applies at once and ends on its own.
+                </p>
+                {{ rec_cards(comfort_recs, 'comfort-recommendations') }}
+                <div class="season-tabs" id="comfort-offset-season-tabs">
+                    <button type="button" class="season-tab comfort-offset-season-tab" data-season="spring">Spring</button>
+                    <button type="button" class="season-tab comfort-offset-season-tab" data-season="summer">Summer</button>
+                    <button type="button" class="season-tab comfort-offset-season-tab" data-season="fall">Fall</button>
+                    <button type="button" class="season-tab comfort-offset-season-tab" data-season="winter">Winter</button>
+                </div>
+                <div class="form-field">
+                    <label>Day</label>
+                        <select id="comfort-offset-day">
+                            <option value="-3.0">-3.0°</option>
+                            <option value="-2.5">-2.5°</option>
+                            <option value="-2.0">-2.0°</option>
+                            <option value="-1.5">-1.5°</option>
+                            <option value="-1.0">-1.0°</option>
+                            <option value="-0.5">-0.5°</option>
+                            <option value="0" selected>none</option>
+                            <option value="0.5">+0.5°</option>
+                            <option value="1.0">+1.0°</option>
+                            <option value="1.5">+1.5°</option>
+                            <option value="2.0">+2.0°</option>
+                            <option value="2.5">+2.5°</option>
+                            <option value="3.0">+3.0°</option>
+                        </select>
+                </div>
+                <div class="form-field">
+                    <label>Night</label>
+                        <select id="comfort-offset-night">
+                            <option value="-3.0">-3.0°</option>
+                            <option value="-2.5">-2.5°</option>
+                            <option value="-2.0">-2.0°</option>
+                            <option value="-1.5">-1.5°</option>
+                            <option value="-1.0">-1.0°</option>
+                            <option value="-0.5">-0.5°</option>
+                            <option value="0" selected>none</option>
+                            <option value="0.5">+0.5°</option>
+                            <option value="1.0">+1.0°</option>
+                            <option value="1.5">+1.5°</option>
+                            <option value="2.0">+2.0°</option>
+                            <option value="2.5">+2.5°</option>
+                            <option value="3.0">+3.0°</option>
+                        </select>
+                </div>
+                {% if zone_status %}
+                <div class="comfort-now">
+                    <div class="form-field">
+                        <label>Right now</label>
+                        <select id="now-offset-select"><option value="-3.0">-3.0°</option><option value="-2.5">-2.5°</option><option value="-2.0">-2.0°</option><option value="-1.5">-1.5°</option><option value="-1.0">-1.0°</option><option value="-0.5">-0.5°</option><option value="0">none</option><option value="0.5">+0.5°</option><option value="1.0">+1.0°</option><option value="1.5">+1.5°</option><option value="2.0">+2.0°</option><option value="2.5">+2.5°</option><option value="3.0">+3.0°</option></select>
+                        <span class="muted">until</span>
+                        <select id="now-until-select">
+                            <option value="night_end">the night window ends</option>
+                            <option value="night_start">the night window begins</option>
+                            <option value="daily_reset" selected>the daily reset hour</option>
+                            <option value="hours">hours from now:</option>
+                        </select>
+                        <input type="number" id="now-hours" value="4" min="1" max="48" step="1" style="width:60px; display:none;">
+                        <span class="muted">applies at once</span>
+                    </div>
+                    <div class="comfort-now-line" id="now-offset-line">
+                        {% if zone_status.temporary_offset is not none %}🎚️ {{ "%+.1f"|format(zone_status.temporary_offset) }}° until {{ zone_status.temporary_offset_expires }} ({{ zone_status.temporary_offset_source }}) · <a href="#" id="now-offset-clear">Clear</a>{% else %}No temporary offset.{% endif %}
+                    </div>
+                </div>
+                {% endif %}
+                {% if zone_form.learning_mode is defined %}
+                {{ render_field(zone_form.learning_mode) }}
+                {% endif %}
             </fieldset>
 
             {# Fan Curve Editor Section #}
@@ -194,64 +414,7 @@
                             <option value="100" selected>No Maximum</option>
                         </select>
                     </div>
-                    <div class="form-field">
-                        <label>Night Start Hour</label>
-                        <select id="nighttime-night_start_hour">
-                            <option value="0">12:00 AM</option>
-                            <option value="1">1:00 AM</option>
-                            <option value="2">2:00 AM</option>
-                            <option value="3">3:00 AM</option>
-                            <option value="4">4:00 AM</option>
-                            <option value="5">5:00 AM</option>
-                            <option value="6">6:00 AM</option>
-                            <option value="7">7:00 AM</option>
-                            <option value="8">8:00 AM</option>
-                            <option value="9">9:00 AM</option>
-                            <option value="10">10:00 AM</option>
-                            <option value="11">11:00 AM</option>
-                            <option value="12">12:00 PM</option>
-                            <option value="13">1:00 PM</option>
-                            <option value="14">2:00 PM</option>
-                            <option value="15">3:00 PM</option>
-                            <option value="16">4:00 PM</option>
-                            <option value="17">5:00 PM</option>
-                            <option value="18">6:00 PM</option>
-                            <option value="19">7:00 PM</option>
-                            <option value="20">8:00 PM</option>
-                            <option value="21">9:00 PM</option>
-                            <option value="22" selected>10:00 PM</option>
-                            <option value="23">11:00 PM</option>
-                        </select>
-                    </div>
-                    <div class="form-field">
-                        <label>Night End Hour</label>
-                        <select id="nighttime-night_end_hour">
-                            <option value="0">12:00 AM</option>
-                            <option value="1">1:00 AM</option>
-                            <option value="2">2:00 AM</option>
-                            <option value="3">3:00 AM</option>
-                            <option value="4">4:00 AM</option>
-                            <option value="5">5:00 AM</option>
-                            <option value="6">6:00 AM</option>
-                            <option value="7">7:00 AM</option>
-                            <option value="8" selected>8:00 AM</option>
-                            <option value="9">9:00 AM</option>
-                            <option value="10">10:00 AM</option>
-                            <option value="11">11:00 AM</option>
-                            <option value="12">12:00 PM</option>
-                            <option value="13">1:00 PM</option>
-                            <option value="14">2:00 PM</option>
-                            <option value="15">3:00 PM</option>
-                            <option value="16">4:00 PM</option>
-                            <option value="17">5:00 PM</option>
-                            <option value="18">6:00 PM</option>
-                            <option value="19">7:00 PM</option>
-                            <option value="20">8:00 PM</option>
-                            <option value="21">9:00 PM</option>
-                            <option value="22">10:00 PM</option>
-                            <option value="23">11:00 PM</option>
-                        </select>
-                    </div>
+                    <p style="font-style:italic; margin:4px 0;">Applies during the zone's Night Window above.</p>
                 </fieldset>
 
                 {% if zone_form.modifiers.form.humidity is defined %}
@@ -276,29 +439,112 @@
 
             <script>
             document.addEventListener('DOMContentLoaded', function() {
-                // --- Nighttime modifier: per-season with tab switching ---
-                var nightDefaults = {clamp_min_pct: 0, clamp_max_pct: 100, night_start_hour: 22, night_end_hour: 8};
+                // --- Night Window: per-season with tab switching (always on) ---
+                var nwDefaults = {start_hour: 22, end_hour: 8};
+                var savedNightWindow = {{ zone.get('night_window', {}) | tojson }};
+                var nwSeasons = ['spring', 'summer', 'fall', 'winter'];
+                var nwMonth = new Date().getMonth() + 1;
+                var nwCurrentSeason;
+                if (nwMonth >= 3 && nwMonth <= 5) nwCurrentSeason = 'spring';
+                else if (nwMonth >= 6 && nwMonth <= 8) nwCurrentSeason = 'summer';
+                else if (nwMonth >= 9 && nwMonth <= 11) nwCurrentSeason = 'fall';
+                else nwCurrentSeason = 'winter';
+
+                var nwState = {};
+                for (var i = 0; i < nwSeasons.length; i++) {
+                    var key = nwSeasons[i];
+                    var saved = savedNightWindow[key];
+                    nwState[key] = {
+                        start_hour: (saved && saved.start_hour !== undefined) ? saved.start_hour : nwDefaults.start_hour,
+                        end_hour: (saved && saved.end_hour !== undefined) ? saved.end_hour : nwDefaults.end_hour
+                    };
+                }
+                window._nightWindowState = nwState;
+                window._nightWindowActiveSeason = nwCurrentSeason;
+                var nwStartSel = document.getElementById('night-window-start_hour');
+                var nwEndSel = document.getElementById('night-window-end_hour');
+
+                function loadNightWindowSeason(season) {
+                    nwStartSel.value = nwState[season].start_hour;
+                    nwEndSel.value = nwState[season].end_hour;
+                }
+                function saveNightWindowSeason(season) {
+                    nwState[season] = {start_hour: parseInt(nwStartSel.value), end_hour: parseInt(nwEndSel.value)};
+                }
+                function switchNightWindowSeason(newSeason) {
+                    saveNightWindowSeason(window._nightWindowActiveSeason);
+                    window._nightWindowActiveSeason = newSeason;
+                    loadNightWindowSeason(newSeason);
+                    document.querySelectorAll('.night-window-season-tab').forEach(function(btn) {
+                        btn.classList.toggle('active', btn.getAttribute('data-season') === newSeason);
+                    });
+                }
+                document.querySelectorAll('.night-window-season-tab').forEach(function(btn) {
+                    btn.addEventListener('click', function() {
+                        switchNightWindowSeason(this.getAttribute('data-season'));
+                    });
+                    btn.classList.toggle('active', btn.getAttribute('data-season') === nwCurrentSeason);
+                });
+                loadNightWindowSeason(nwCurrentSeason);
+                window._serializeNightWindow = function() {
+                    saveNightWindowSeason(window._nightWindowActiveSeason);
+                    var el = document.getElementById('night-window-json');
+                    if (el) el.value = JSON.stringify(window._nightWindowState);
+                };
+
+                // --- Comfort Offset: per-season day/night with tab switching ---
+                var savedComfort = {{ zone.get('comfort_offset', {}) | tojson }};
+                var coSeasons = ['spring', 'summer', 'fall', 'winter'];
+                var coState = {};
+                for (var i = 0; i < coSeasons.length; i++) {
+                    var k = coSeasons[i];
+                    var sv = savedComfort[k] || {};
+                    coState[k] = {day: parseFloat(sv.day) || 0, night: parseFloat(sv.night) || 0};
+                }
+                window._comfortOffsetState = coState;
+                window._comfortOffsetActiveSeason = nwCurrentSeason;
+                var coDaySel = document.getElementById('comfort-offset-day');
+                var coNightSel = document.getElementById('comfort-offset-night');
+                function fmtOff(v) { return v === 0 ? '0' : String(v); }
+                function loadComfortSeason(season) {
+                    coDaySel.value = fmtOff(coState[season].day);
+                    coNightSel.value = fmtOff(coState[season].night);
+                }
+                function saveComfortSeason(season) {
+                    coState[season] = {day: parseFloat(coDaySel.value) || 0, night: parseFloat(coNightSel.value) || 0};
+                }
+                function switchComfortSeason(newSeason) {
+                    saveComfortSeason(window._comfortOffsetActiveSeason);
+                    window._comfortOffsetActiveSeason = newSeason;
+                    loadComfortSeason(newSeason);
+                    document.querySelectorAll('.comfort-offset-season-tab').forEach(function(btn) {
+                        btn.classList.toggle('active', btn.getAttribute('data-season') === newSeason);
+                    });
+                }
+                document.querySelectorAll('.comfort-offset-season-tab').forEach(function(btn) {
+                    btn.addEventListener('click', function() { switchComfortSeason(this.getAttribute('data-season')); });
+                    btn.classList.toggle('active', btn.getAttribute('data-season') === nwCurrentSeason);
+                });
+                loadComfortSeason(nwCurrentSeason);
+                window._serializeComfortOffset = function() {
+                    saveComfortSeason(window._comfortOffsetActiveSeason);
+                    var el = document.getElementById('comfort-offset-json');
+                    if (el) el.value = JSON.stringify(window._comfortOffsetState);
+                };
+
+                // --- Nighttime modifier: per-season speed limits (hours come from the Night Window) ---
+                var nightDefaults = {clamp_min_pct: 0, clamp_max_pct: 100};
                 var savedNighttime = {{ zone.get('modifiers', {}).get('nighttime', {}) | tojson }};
                 var nightSeasons = ['spring', 'summer', 'fall', 'winter'];
+                var nightCurrentSeason = nwCurrentSeason;
 
-                // Determine current season
-                var nightMonth = new Date().getMonth() + 1;
-                var nightCurrentSeason;
-                if (nightMonth >= 3 && nightMonth <= 5) nightCurrentSeason = 'spring';
-                else if (nightMonth >= 6 && nightMonth <= 8) nightCurrentSeason = 'summer';
-                else if (nightMonth >= 9 && nightMonth <= 11) nightCurrentSeason = 'fall';
-                else nightCurrentSeason = 'winter';
-
-                // Initialize per-season state
                 var nightState = {};
                 for (var i = 0; i < nightSeasons.length; i++) {
                     var key = nightSeasons[i];
                     var saved = savedNighttime[key];
                     nightState[key] = {
                         clamp_min_pct: (saved && saved.clamp_min_pct !== undefined) ? saved.clamp_min_pct : nightDefaults.clamp_min_pct,
-                        clamp_max_pct: (saved && saved.clamp_max_pct !== undefined) ? saved.clamp_max_pct : nightDefaults.clamp_max_pct,
-                        night_start_hour: (saved && saved.night_start_hour !== undefined) ? saved.night_start_hour : nightDefaults.night_start_hour,
-                        night_end_hour: (saved && saved.night_end_hour !== undefined) ? saved.night_end_hour : nightDefaults.night_end_hour
+                        clamp_max_pct: (saved && saved.clamp_max_pct !== undefined) ? saved.clamp_max_pct : nightDefaults.clamp_max_pct
                     };
                 }
                 window._nighttimeState = nightState;
@@ -306,24 +552,17 @@
 
                 var nightMinSel = document.getElementById('nighttime-clamp_min_pct');
                 var nightMaxSel = document.getElementById('nighttime-clamp_max_pct');
-                var nightStartSel = document.getElementById('nighttime-night_start_hour');
-                var nightEndSel = document.getElementById('nighttime-night_end_hour');
 
                 function loadNighttimeSeason(season) {
                     var s = nightState[season];
                     nightMinSel.value = s.clamp_min_pct;
                     nightMaxSel.value = s.clamp_max_pct;
-                    nightStartSel.value = s.night_start_hour;
-                    nightEndSel.value = s.night_end_hour;
-                    updateNighttimeHours();
                 }
 
                 function saveNighttimeSeason(season) {
                     nightState[season] = {
                         clamp_min_pct: parseInt(nightMinSel.value),
-                        clamp_max_pct: parseInt(nightMaxSel.value),
-                        night_start_hour: parseInt(nightStartSel.value),
-                        night_end_hour: parseInt(nightEndSel.value)
+                        clamp_max_pct: parseInt(nightMaxSel.value)
                     };
                 }
 
@@ -342,16 +581,6 @@
                     });
                     btn.classList.toggle('active', btn.getAttribute('data-season') === nightCurrentSeason);
                 });
-
-                // Disable hours when min=0 AND max=100 (neutral/disabled)
-                function updateNighttimeHours() {
-                    var isNeutral = (parseInt(nightMinSel.value) === 0 && parseInt(nightMaxSel.value) === 100);
-                    nightStartSel.disabled = isNeutral;
-                    nightEndSel.disabled = isNeutral;
-                }
-
-                nightMinSel.addEventListener('change', updateNighttimeHours);
-                nightMaxSel.addEventListener('change', updateNighttimeHours);
 
                 // Load initial season
                 loadNighttimeSeason(nightCurrentSeason);
@@ -480,9 +709,13 @@
             {% if zone_form.lock_duration is defined %}
             <fieldset class="group-box">
                 <legend>Lock Behavior</legend>
+                {{ rec_cards(lock_recs, 'lock-recommendations') }}
                 {{ render_field(zone_form.lock_duration) }}
                 {% if zone_form.lock_extension_duration is defined %}
                 {{ render_field(zone_form.lock_extension_duration) }}
+                {% endif %}
+                {% if zone_form.hold_locks_at_night is defined %}
+                {{ render_field(zone_form.hold_locks_at_night) }}
                 {% endif %}
             </fieldset>
             {% endif %}
@@ -499,6 +732,57 @@
         </form>
         {{ save_overlay() }}
 
+
+
+        <script>
+        // "Right now" comfort offset: applies on change, no Set button, no page reload.
+        document.addEventListener('DOMContentLoaded', function() {
+            var offSel = document.getElementById('now-offset-select');
+            if (!offSel) return;
+            var untilSel = document.getElementById('now-until-select');
+            var hours = document.getElementById('now-hours');
+            var line = document.getElementById('now-offset-line');
+            var statusUrl = "{{ url_for('zone_status', zone_id=index) }}";
+            var current = {{ (zone_status.temporary_offset if zone_status and zone_status.temporary_offset is not none else 0) | tojson }};
+            offSel.value = (current === 0) ? '0' : String(current);
+            function toggleHours() { hours.style.display = (untilSel.value === 'hours') ? '' : 'none'; }
+            untilSel.addEventListener('change', function() { toggleHours(); if (parseFloat(offSel.value) !== 0) post('set_offset'); });
+            hours.addEventListener('change', function() { if (parseFloat(offSel.value) !== 0) post('set_offset'); });
+            offSel.addEventListener('change', function() { post(parseFloat(offSel.value) === 0 ? 'clear_offset' : 'set_offset'); });
+            line.addEventListener('click', function(e) {
+                if (e.target && e.target.id === 'now-offset-clear') { e.preventDefault(); offSel.value = '0'; post('clear_offset'); }
+            });
+            function fmt(v) { return (v > 0 ? '+' : '') + Number(v).toFixed(1) + '°'; }
+            function render(st) {
+                if (st.temporary_offset !== null && st.temporary_offset !== undefined) {
+                    line.innerHTML = '🎚️ ' + fmt(st.temporary_offset) + ' until ' + st.temporary_offset_expires + ' (' + st.temporary_offset_source + ') · <a href="#" id="now-offset-clear">Clear</a>';
+                    offSel.value = String(st.temporary_offset);
+                } else {
+                    line.textContent = 'No temporary offset.';
+                    offSel.value = '0';
+                }
+                var el;
+                if ((el = document.getElementById('now-ideal')) && st.effective_ideal !== null) el.textContent = Number(st.effective_ideal).toFixed(1) + '°';
+                if ((el = document.getElementById('now-fan'))) el.textContent = Math.round(st.current_speed_pct) + '%';
+                if ((el = document.getElementById('now-period'))) el.textContent = st.is_night ? 'night' : 'day';
+                if ((el = document.getElementById('now-offsets'))) {
+                    var parts = [];
+                    if (st.standing_offset) parts.push('standing ' + fmt(st.standing_offset));
+                    if (st.temporary_offset !== null && st.temporary_offset !== undefined) parts.push('temporary ' + fmt(st.temporary_offset));
+                    el.textContent = parts.length ? ', ' + parts.join(', ') : '';
+                }
+            }
+            function post(action) {
+                var body = new URLSearchParams({format: 'json', action: action, offset: offSel.value, until: untilSel.value, hours: hours.value});
+                line.textContent = 'Saving…';
+                fetch(statusUrl, {method: 'POST', headers: {'Content-Type': 'application/x-www-form-urlencoded'}, body: body.toString(), credentials: 'same-origin'})
+                    .then(function(r) { return r.json(); })
+                    .then(function(data) { if (data.status) render(data.status); else line.textContent = data.message || 'Error'; })
+                    .catch(function() { line.textContent = 'Could not reach the plugin — reload the page.'; });
+            }
+            toggleHours();
+        });
+        </script>
         <script>
         // Ensure all options in the selected list are included when the form is submitted
         document.addEventListener('DOMContentLoaded', function() {
@@ -517,6 +801,8 @@
                 }
               });
               serializeFanCurve();
+              if (window._serializeNightWindow) window._serializeNightWindow();
+              if (window._serializeComfortOffset) window._serializeComfortOffset();
               if (window._serializeNighttime) window._serializeNighttime();
               if (window._serializeIdealTemp) window._serializeIdealTemp();
             });

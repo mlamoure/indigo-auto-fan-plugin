@@ -159,16 +159,20 @@ class IWSWebHandler:
     Handles web requests through Indigo's Web Server (IWS) using Jinja2 for templating.
     """
 
-    def __init__(self, config_editor: WebConfigEditor, plugin_id: str):
+    def __init__(self, config_editor: WebConfigEditor, plugin_id: str, agent_provider=None):
         """
         Initialize the IWS web handler.
 
         Args:
             config_editor: The WebConfigEditor instance for config management
             plugin_id: The plugin ID for generating IWS URLs
+            agent_provider: Callable returning the live AutoFanAgent (or None),
+                used for the zone status panel (locks, comfort offsets,
+                recommendations) which is runtime state, not config.
         """
         self.config_editor = config_editor
         self.plugin_id = plugin_id
+        self.agent_provider = agent_provider
 
         # Set up Jinja2 environment
         template_dir = os.path.join(os.path.dirname(__file__), 'templates')
@@ -240,6 +244,7 @@ class IWSWebHandler:
             'plugin_config': 'plugin_config',
             'config_backup': 'config_backup',
             'zone_delete': f"zone/delete/{kwargs.get('zone_id', '')}",
+            'zone_status': f"zone_status/{kwargs.get('zone_id', '')}",
             'create_new_variable': 'create_new_variable',
         }
 
@@ -337,6 +342,9 @@ class IWSWebHandler:
         elif page.startswith('zone/delete/'):
             zone_id = page.split('/')[-1]
             return self._post_zone_delete(zone_id)
+        elif page.startswith('zone_status/'):
+            zone_id = page.split('/')[-1]
+            return self._post_zone_status(zone_id, body_params)
         elif page.startswith('zone/'):
             zone_id = page.split('/')[-1]
             return self._post_zone_save(zone_id, body_params)
@@ -436,6 +444,24 @@ class IWSWebHandler:
                     flash["error"] = "Invalid fan curve data — please re-enter"
             zone_data.pop("fan_curve", None)
 
+            # Process standing comfort offsets from hidden JSON field (per-season day/night)
+            comfort_offset_json = body_params.get("comfort_offset_json", "")
+            if comfort_offset_json:
+                try:
+                    zone_data["comfort_offset"] = json.loads(comfort_offset_json)
+                except (json.JSONDecodeError, TypeError) as e:
+                    logger.warning(f"Failed to parse comfort_offset_json: {e}")
+                    flash["error"] = "Invalid comfort offset data — please re-enter"
+
+            # Process night window from hidden JSON field (per-season, always on)
+            night_window_json = body_params.get("night_window_json", "")
+            if night_window_json:
+                try:
+                    zone_data["night_window"] = json.loads(night_window_json)
+                except (json.JSONDecodeError, TypeError) as e:
+                    logger.warning(f"Failed to parse night_window_json: {e}")
+                    flash["error"] = "Invalid night window data — please re-enter"
+
             # Process nighttime modifier from hidden JSON field (per-season)
             nighttime_json = body_params.get("nighttime_json", "")
             if nighttime_json:
@@ -482,6 +508,98 @@ class IWSWebHandler:
                 return self._render_zones(flash)
             else:
                 return self._render_zone_edit(zone_id, flash)
+
+    # ---- Zone status (runtime: locks, comfort offsets, recommendations) ----
+
+    def _agent(self):
+        try:
+            return self.agent_provider() if self.agent_provider else None
+        except Exception as e:
+            logger.warning(f"agent_provider failed: {e}")
+            return None
+
+    def _zone_by_index(self, index: int):
+        agent = self._agent()
+        if agent is None:
+            return None, None
+        zone = next((z for z in agent.config.zones if z.zone_index == index), None)
+        return agent, zone
+
+    def _zone_status(self, zone_id) -> Optional[Dict[str, Any]]:
+        """Live status dict for one zone, or None when unavailable (new zone, no agent)."""
+        try:
+            index = int(zone_id)
+        except (TypeError, ValueError):
+            return None
+        agent, zone = self._zone_by_index(index)
+        if agent is None or zone is None:
+            return None
+        try:
+            return agent.zone_status(zone)
+        except Exception as e:
+            logger.warning(f"zone_status failed for zone {index}: {e}")
+            return None
+
+    def _all_zone_statuses(self) -> Dict[int, Dict[str, Any]]:
+        agent = self._agent()
+        if agent is None:
+            return {}
+        out = {}
+        for zone in agent.config.zones:
+            try:
+                out[zone.zone_index] = agent.zone_status(zone)
+            except Exception as e:
+                logger.warning(f"zone_status failed for zone '{zone.name}': {e}")
+        return out
+
+    def _post_zone_status(self, zone_id: str, body_params: Dict[str, Any]) -> Dict[str, Any]:
+        """Act on a zone's runtime state: clear its lock, set or clear a
+        temporary comfort offset, apply or dismiss a recommendation."""
+        flash = {}
+        try:
+            index = int(zone_id)
+            agent, zone = self._zone_by_index(index)
+            if agent is None or zone is None:
+                flash["error"] = "Zone status is unavailable (plugin not running?)"
+                return self._render_zone_edit(zone_id, flash)
+            action = str(body_params.get("action", ""))
+            if action == "clear_lock":
+                agent.reset_locks(zone.name, reason="cleared from the web page")
+                flash["message"] = f"Lock cleared for '{zone.name}'"
+            elif action == "set_offset":
+                offset = float(body_params.get("offset", 0))
+                until = str(body_params.get("until", "daily_reset"))
+                hours = float(body_params.get("hours", 4) or 4)
+                agent.set_comfort_offset(zone.name, offset, until=until, hours=hours, source="web page")
+                flash["message"] = f"Comfort offset {offset:+.1f}°F set for '{zone.name}'"
+            elif action == "clear_offset":
+                agent.clear_comfort_offset(zone.name, source="web page")
+                flash["message"] = f"Comfort offset cleared for '{zone.name}'"
+            elif action in ("apply_recommendation", "dismiss_recommendation"):
+                rec_id = str(body_params.get("rec_id", ""))
+                handler = getattr(agent, action, None)
+                if handler is None:
+                    flash["error"] = "Recommendations are not available in this version"
+                else:
+                    ok, msg = handler(rec_id)
+                    flash["message" if ok else "error"] = msg
+            else:
+                flash["error"] = f"Unknown zone status action '{action}'"
+        except Exception as e:
+            logger.exception(f"Error in zone status action: {e}")
+            flash["error"] = f"Error: {str(e)}"
+        if str(body_params.get("format", "")) == "json":
+            # In-place controls (the "right now" offset) want the new status, not a page
+            reply = create_reply_dict()
+            reply["status"] = 200
+            reply["headers"] = create_headers_dict({"Content-Type": "application/json"})
+            reply["content"] = json.dumps({
+                "ok": "error" not in flash,
+                "message": flash.get("message") or flash.get("error") or "",
+                "status": self._zone_status(zone_id),
+            }, default=str)
+            return reply
+        return self._render_zone_edit(zone_id, flash)
 
     def _post_zone_delete(self, zone_id: str) -> Dict[str, Any]:
         """Handle zone delete."""
@@ -535,7 +653,7 @@ class IWSWebHandler:
             }
 
             # Coerce integer fields
-            for int_field in ["default_lock_duration", "default_lock_extension_duration", "weather_dev_id", "away_var_id", "season_var_id"]:
+            for int_field in ["default_lock_duration", "default_lock_extension_duration", "max_lock_hours", "daily_reset_hour", "weather_dev_id", "away_var_id", "season_var_id"]:
                 val = plugin_config.get(int_field)
                 if val is not None and val != "" and val != "-1":
                     try:
@@ -682,7 +800,8 @@ class IWSWebHandler:
             # Render template
             logger.debug("Rendering zones.html template...")
             template = self.jinja_env.get_template('zones.html')
-            html = template.render(zones_forms=zones_forms, flash=flash or {})
+            html = template.render(zones_forms=zones_forms, flash=flash or {},
+                                   statuses=self._all_zone_statuses())
             logger.debug(f"Template rendered successfully, HTML length: {len(html)} bytes")
 
             logger.debug("Returning zones page response with status 200")
@@ -818,7 +937,8 @@ class IWSWebHandler:
             # Render template
             template = self.jinja_env.get_template('zone_edit.html')
             html = template.render(zone_form=zone_form, index=zone_id, zone=zone,
-                                   indigo_variables=indigo_variables, flash=flash or {})
+                                   indigo_variables=indigo_variables, flash=flash or {},
+                                   zone_status=None if is_new else self._zone_status(zone_id))
 
             return create_html_response(html)
 

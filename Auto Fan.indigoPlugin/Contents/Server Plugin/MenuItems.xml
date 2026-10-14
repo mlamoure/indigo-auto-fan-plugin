@@ -12,4 +12,16 @@
         <Name>Print zone temperature breakdowns</Name>
         <CallbackMethod>print_zone_breakdowns</CallbackMethod>
     </MenuItem>
+    <MenuItem id="print_override_summary">
+        <Name>Print manual change summary (30 days)</Name>
+        <CallbackMethod>print_override_summary</CallbackMethod>
+    </MenuItem>
+    <MenuItem id="print_recommendations">
+        <Name>Print open recommendations (beta)</Name>
+        <CallbackMethod>print_recommendations</CallbackMethod>
+    </MenuItem>
+    <MenuItem id="run_learning_now">
+        <Name>Run comfort learning now (beta)</Name>
+        <CallbackMethod>run_learning_now</CallbackMethod>
+    </MenuItem>
 </MenuItems>

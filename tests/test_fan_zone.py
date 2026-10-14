@@ -648,12 +648,15 @@ class TestFanZoneExtendLock:
     def _make_zone(self):
         return TestFanZoneTemperature._make_zone(self)
 
-    def test_extend_lock(self, fake_indigo):
+    def test_extend_lock(self, fake_indigo, fake_clock):
+        # By day: a lock taken inside the night window holds until morning and never extends
+        fake_clock.set(datetime(2026, 10, 3, 14, 0))
         zone, config = self._make_zone()
         zone.lock_zone("test")
+        assert zone.lock_rule == "duration"
 
         # Simulate lock almost expired by setting expiration to 1 minute from now
-        zone.lock_expiration = datetime.now() + timedelta(minutes=1)
+        zone.lock_expiration = fake_clock.now() + timedelta(minutes=1)
         old_expiration = zone.lock_expiration
 
         zone.extend_lock()

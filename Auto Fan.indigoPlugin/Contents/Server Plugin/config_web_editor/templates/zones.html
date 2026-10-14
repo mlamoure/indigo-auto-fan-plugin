@@ -20,14 +20,21 @@
                 <tr>
                   <th>#</th>
                   <th>Zone Name</th>
+                  <th>Lock</th>
+                  <th>Comfort Offset</th>
+                  <th>Recommendations</th>
                   <th>Actions</th>
                 </tr>
               </thead>
               <tbody>
                 {% for zone_form in zones_forms %}
+                  {% set st = statuses.get(loop.index0) if statuses is defined else none %}
                   <tr>
                     <td>{{ loop.index }}</td>
                     <td>{{ zone_form.name.data }}</td>
+                    <td>{% if st and st.locked %}🔒 until {{ st.lock_expiration }}{% elif st %}—{% endif %}</td>
+                    <td>{% if st and st.temporary_offset is not none %}🎚️ {{ "%+.1f"|format(st.temporary_offset) }}° until {{ st.temporary_offset_expires }}{% elif st and st.standing_offset %}{{ "%+.1f"|format(st.standing_offset) }}° standing{% elif st %}—{% endif %}</td>
+                    <td>{% if st and st.open_recommendations %}💡 {{ st.open_recommendations }} open{% elif st %}—{% endif %}</td>
                     <td><a class="btn" href="{{ url_for('zone_config', zone_id=loop.index0) }}">Edit</a> <button type="button" class="btn" onclick="confirmDelete({{ loop.index0 }})">Delete</button></td>
                   </tr>
                 {% endfor %}

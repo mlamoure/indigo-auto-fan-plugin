@@ -473,3 +473,86 @@ table.zones-table th {
 .fan-curve-summary-card .speed {
     color: #007BFF;
 }
+
+
+/* Zone page: live status strip and recommendations */
+.status-strip {
+    background: #f4f7fb;
+    border: 1px solid #d6dde8;
+    border-radius: 6px;
+    padding: 10px 14px;
+    margin: 0 0 14px 0;
+}
+.status-strip-title {
+    font-weight: bold;
+    margin-bottom: 4px;
+}
+.status-strip-line {
+    margin: 2px 0;
+}
+.muted {
+    color: #666;
+}
+.btn-muted {
+    background-color: #8a94a6;
+}
+.btn-muted:hover {
+    background-color: #6d778a;
+}
+.recommendations {
+    border: 1px solid #e0b84a;
+    border-radius: 6px;
+    background: #fffaf0;
+    padding: 6px 10px;
+    margin: 4px 0 12px 0;
+}
+.rec-heading {
+    font-weight: bold;
+}
+.beta-tag {
+    display: inline-block;
+    margin-left: 6px;
+    padding: 0 6px;
+    border-radius: 8px;
+    background: #e0b84a;
+    color: #fff;
+    font-size: 0.75em;
+    font-weight: bold;
+    text-transform: uppercase;
+    vertical-align: middle;
+}
+.rec-actions {
+    margin-left: 12px;
+}
+.rec-card {
+    border-left: 4px solid #e0b84a;
+    padding: 6px 10px;
+    margin: 6px 0 10px 0;
+}
+.rec-title {
+    font-weight: bold;
+}
+.rec-text {
+    margin: 2px 0 4px 0;
+}
+.comfort-now {
+    margin-top: 10px;
+    padding-top: 8px;
+    border-top: 1px dashed #ccc;
+}
+.comfort-now-line {
+    margin: 0 0 6px 200px;
+}
+.flash {
+    border-radius: 6px;
+    padding: 8px 14px;
+    margin: 0 0 12px 0;
+}
+.flash-ok {
+    background: #e8f5e9;
+    border: 1px solid #a5d6a7;
+}
+.flash-error {
+    background: #fdecea;
+    border: 1px solid #f5a9a3;
+}

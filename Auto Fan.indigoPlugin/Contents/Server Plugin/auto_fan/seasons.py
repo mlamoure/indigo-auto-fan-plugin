@@ -1,6 +1,8 @@
 from datetime import datetime
 from typing import Optional
 
+from . import clock
+
 SEASONS = ("spring", "summer", "fall", "winter")
 
 SEASON_LABELS = {
@@ -54,6 +56,6 @@ def get_current_season(
             pass
         # Fall through to automatic on failure
 
-    month = (now or datetime.now()).month
+    month = (now or clock.now()).month
     season_map = _SOUTH_MONTH_TO_SEASON if hemisphere == "south" else _NORTH_MONTH_TO_SEASON
     return season_map.get(month, "summer")

@@ -93,7 +93,8 @@ def create_field(field_name, field_schema):
     # Enum select fields
     elif field_type == "string" and field_schema.get("enum"):
         enum_values = field_schema.get("enum", [])
-        choices = [(val, val) for val in enum_values]
+        enum_labels = field_schema.get("x-enum-labels", enum_values)
+        choices = list(zip(enum_values, enum_labels))
         f = SelectField(label=label_text, description=tooltip_text, choices=choices, validators=validators)
 
     # Default string field

@@ -1,9 +1,12 @@
 import json
 from datetime import datetime, timedelta
+
+from . import clock
 from typing import List, Optional, Tuple
 
 from .auto_fan_base import AutoFanBase
 from .seasons import SEASONS, get_current_season
+from .comfort import temporary_offset_for_change
 from .speed_curve import apply_modifiers, calculate_base_speed
 from .speed_plan import SpeedPlan
 from .utils import get_fan_speed_pct, send_fan_speed, is_baf_fan, BAF_SPEED_COUNT
@@ -68,12 +71,34 @@ class FanZone(AutoFanBase):
         # Modifiers
         self.modifiers: dict = {}
 
+        # Night window (per season): when this zone counts as "night"
+        self.night_window: dict = {
+            s: {"start_hour": 22, "end_hour": 8} for s in SEASONS
+        }
+
         # Lock state
         self.locked: bool = False
         self.lock_expiration: Optional[datetime] = None
         self.lock_duration: int = -1  # -1 = use plugin default
         self.lock_extension_duration: int = -1
+        self.hold_locks_at_night: str = "inherit"  # inherit | on | off
+        self.lock_rule: Optional[str] = None       # "night_end" | "duration"
+        self.lock_reason: str = ""
+        self.lock_started: Optional[datetime] = None
+        self.lock_step: Optional[int] = None       # fan step when the lock was taken
+        self.lock_extensions: int = 0
+
+        # Comfort offsets (degrees added to the configured ideal)
+        self.comfort_offset: dict = {s: {"day": 0.0, "night": 0.0} for s in SEASONS}
+        self.learning_mode: str = "inherit"  # inherit | suggest | off
+        self.temporary_offset: Optional[float] = None
+        self.temporary_offset_expires: Optional[datetime] = None
+        self.temporary_offset_source: str = ""
+        self.temporary_offset_implied_ideal: Optional[float] = None
         self._last_speed_command_time: Optional[datetime] = None
+        # The speed step (index, or rounded % for step-less fans) the plugin
+        # last asked for; a fan report that lands on it is the plugin's own.
+        self._last_commanded_step: Optional[int] = None
 
         # Zone state
         # `enabled` is exposed as a property below — backed by the Indigo zone
@@ -91,6 +116,17 @@ class FanZone(AutoFanBase):
              "getter": lambda: self.get_current_temperature()},
             {"key": "ideal_temperature", "label": "Ideal Temperature", "type": "number",
              "getter": lambda: self.get_ideal_temperature()},
+            {"key": "configured_ideal_temperature", "label": "Configured Ideal Temperature", "type": "number",
+             "getter": lambda: self.get_configured_ideal_temperature()},
+            {"key": "comfort_offset_standing", "label": "Standing Comfort Offset", "type": "number",
+             "getter": lambda: self.standing_offset_value()},
+            {"key": "comfort_offset_temporary", "label": "Temporary Comfort Offset", "type": "number",
+             "getter": lambda: (self.temporary_offset if self.temporary_offset_active() else 0.0)},
+            {"key": "open_recommendations", "label": "Open Recommendations", "type": "number",
+             "getter": lambda: self.open_recommendation_count()},
+            {"key": "comfort_offset_expires", "label": "Temporary Offset Expires", "type": "string",
+             "getter": lambda: (self.temporary_offset_expires.strftime("%Y-%m-%d %H:%M")
+                                if self.temporary_offset_active() and self.temporary_offset_expires else "")},
             {"key": "temperature_delta", "label": "Temperature Delta", "type": "number",
              "getter": lambda: self.get_temperature_delta()},
             {"key": "target_speed_pct", "label": "Target Speed %", "type": "number",
@@ -103,12 +139,18 @@ class FanZone(AutoFanBase):
              "getter": lambda: self.locked},
             {"key": "lock_expiration", "label": "Lock Expiration", "type": "string",
              "getter": lambda: str(self.lock_expiration) if self.lock_expiration else ""},
+            {"key": "lock_rule", "label": "Lock Rule", "type": "string",
+             "getter": lambda: self.lock_rule or ""},
+            {"key": "lock_reason", "label": "Lock Reason", "type": "string",
+             "getter": lambda: self.lock_reason if self.locked else ""},
             {"key": "humidity", "label": "Humidity", "type": "number",
              "getter": lambda: self.get_humidity() or 0},
             {"key": "outdoor_temperature", "label": "Outdoor Temperature", "type": "number",
              "getter": lambda: self.get_outdoor_temperature() or 0},
             {"key": "current_season", "label": "Current Season", "type": "string",
              "getter": lambda: get_current_season(**self._config.get_season_kwargs())},
+            {"key": "is_night", "label": "Night Window Active", "type": "boolean",
+             "getter": lambda: self.is_night()},
         ]
 
     @property
@@ -179,14 +221,75 @@ class FanZone(AutoFanBase):
             }
         self.modifiers = data.get("modifiers", {})
 
+        if isinstance(data.get("night_window"), dict):
+            for season in SEASONS:
+                w = data["night_window"].get(season)
+                if isinstance(w, dict):
+                    self.night_window[season] = {
+                        "start_hour": int(w.get("start_hour", 22)),
+                        "end_hour": int(w.get("end_hour", 8)),
+                    }
+
         self.lock_duration = data.get("lock_duration", -1)
         self.lock_extension_duration = data.get("lock_extension_duration", -1)
+        self.hold_locks_at_night = str(data.get("hold_locks_at_night", "inherit") or "inherit")
+        self.learning_mode = str(data.get("learning_mode", "inherit") or "inherit")
+        if isinstance(data.get("comfort_offset"), dict):
+            for season in SEASONS:
+                values = data["comfort_offset"].get(season)
+                if isinstance(values, dict):
+                    for period in ("day", "night"):
+                        try:
+                            self.comfort_offset[season][period] = float(values.get(period, 0.0) or 0.0)
+                        except (TypeError, ValueError):
+                            self.comfort_offset[season][period] = 0.0
         # Assign the backing field directly rather than via the property
         # setter — on reload the Indigo device's onState is the live truth
         # (it reflects any UI toggles made since the last config save), so
         # we don't want to clobber it with a possibly-stale JSON value.
         self._enabled = data.get("enabled", True)
         self._indigo_dev_id = data.get("indigo_dev_id")
+
+    # ---- Night Window ----
+
+    def get_night_window(self, season: Optional[str] = None) -> Tuple[int, int]:
+        """Return (start_hour, end_hour) of the night window for a season."""
+        season = season or get_current_season(**self._config.get_season_kwargs())
+        w = self.night_window.get(season) or {}
+        return int(w.get("start_hour", 22)), int(w.get("end_hour", 8))
+
+    def is_night(self, season: Optional[str] = None, now: Optional[datetime] = None) -> bool:
+        """True when ``now`` falls inside the zone's night window for the season.
+
+        A window that crosses midnight (22 → 8) is night from 22:00 until 07:59;
+        one that does not (0 → 6) is night from 00:00 until 05:59. Equal hours
+        mean "never night".
+        """
+        start_hour, end_hour = self.get_night_window(season)
+        if start_hour == end_hour:
+            return False
+        hour = (now or clock.now()).hour
+        if start_hour > end_hour:
+            return hour >= start_hour or hour < end_hour
+        return start_hour <= hour < end_hour
+
+    def next_night_end(self, now: Optional[datetime] = None) -> datetime:
+        """The next moment the current season's night window ends (end_hour:00)."""
+        now = now or clock.now()
+        _, end_hour = self.get_night_window()
+        candidate = now.replace(hour=end_hour, minute=0, second=0, microsecond=0)
+        if candidate <= now:
+            candidate += timedelta(days=1)
+        return candidate
+
+    def next_night_start(self, now: Optional[datetime] = None) -> datetime:
+        """The next moment the current season's night window starts (start_hour:00)."""
+        now = now or clock.now()
+        start_hour, _ = self.get_night_window()
+        candidate = now.replace(hour=start_hour, minute=0, second=0, microsecond=0)
+        if candidate <= now:
+            candidate += timedelta(days=1)
+        return candidate
 
     # ---- Sensor Reading Methods ----
 
@@ -268,8 +371,10 @@ class FanZone(AutoFanBase):
         except (KeyError, TypeError, ValueError):
             return None
 
-    def get_ideal_temperature(self) -> Optional[float]:
-        """Get ideal temperature based on configured source for the current season."""
+    def get_configured_ideal_temperature(self) -> Optional[float]:
+        """Ideal temperature from the configured source for the current season
+        (static value, Indigo variable, or thermostat setpoints with cap),
+        before any comfort offset."""
         cfg = self._current_ideal_temp_config
         source = cfg.get("source", "static")
         fallback = cfg.get("value", 72.0)
@@ -288,6 +393,133 @@ class FanZone(AutoFanBase):
                 return cap
             return resolved
         return fallback
+
+    def standing_offset_value(self, season: Optional[str] = None, is_night: Optional[bool] = None) -> float:
+        """Standing comfort offset for the season and half of the day."""
+        season = season or get_current_season(**self._config.get_season_kwargs())
+        if is_night is None:
+            is_night = self.is_night(season)
+        values = self.comfort_offset.get(season) or {}
+        try:
+            return float(values.get("night" if is_night else "day", 0.0) or 0.0)
+        except (TypeError, ValueError):
+            return 0.0
+
+    def open_recommendation_count(self) -> int:
+        agent = getattr(self._config, "agent", None)
+        recommender = getattr(agent, "recommender", None)
+        if recommender is None:
+            return 0
+        try:
+            return len(recommender.open_for_zone(self.name))
+        except Exception:
+            return 0
+
+    def get_ideal_temperature(self) -> Optional[float]:
+        """Effective ideal: configured ideal + standing offset + temporary offset."""
+        configured = self.get_configured_ideal_temperature()
+        if configured is None:
+            return None
+        ideal = configured + self.standing_offset_value()
+        if self.temporary_offset_active():
+            ideal += self.temporary_offset
+        return ideal
+
+    # ---- Comfort offsets ----
+
+    def temporary_offset_active(self, now: Optional[datetime] = None) -> bool:
+        """True while a temporary offset is set and not yet expired. An expired
+        offset is cleared on the spot."""
+        if self.temporary_offset is None:
+            return False
+        if self.temporary_offset_expires is not None and (now or clock.now()) >= self.temporary_offset_expires:
+            self.clear_temporary_offset("expired")
+            return False
+        return True
+
+    def set_temporary_offset(self, offset: float, expires: Optional[datetime], source: str,
+                             implied_ideal: Optional[float] = None) -> None:
+        self.temporary_offset = float(offset)
+        self.temporary_offset_expires = expires
+        self.temporary_offset_source = source
+        self.temporary_offset_implied_ideal = implied_ideal
+        until = expires.strftime("%a %H:%M") if expires else "cleared by hand"
+        detail = f", implied ideal {implied_ideal:.1f}°F" if implied_ideal is not None else ""
+        self.logger.info(
+            f"🎚️ Zone '{self.name}': temporary comfort offset {offset:+.1f}°F until {until} ({source}{detail})"
+        )
+
+    def clear_temporary_offset(self, reason: str = "cleared") -> None:
+        if self.temporary_offset is None:
+            return
+        self.logger.info(f"🎚️ Zone '{self.name}': temporary comfort offset {self.temporary_offset:+.1f}°F ended ({reason})")
+        self.temporary_offset = None
+        self.temporary_offset_expires = None
+        self.temporary_offset_source = ""
+        self.temporary_offset_implied_ideal = None
+
+    def temporary_offset_expiry_for(self, now: Optional[datetime] = None) -> datetime:
+        """A change made at night lasts until the night window ends; a change
+        made by day lasts until it begins."""
+        now = now or clock.now()
+        return self.next_night_end(now) if self.is_night(now=now) else self.next_night_start(now)
+
+    def active_additive_boost(self, season: Optional[str] = None) -> float:
+        """Sum of the additive modifiers active right now (HVAC boost/adjust,
+        humidity boost), so a chosen speed can be mapped back to the curve."""
+        boost = 0.0
+        mods = self.modifiers or {}
+        if self.is_hvac_cooling():
+            boost += float(mods.get("hvac_cooling_active", {}).get("speed_boost_pct", 0) or 0)
+        if self.is_hvac_heating():
+            boost += float(mods.get("hvac_heating_active", {}).get("speed_adjust_pct", 0) or 0)
+        humidity = self.get_humidity()
+        hum = mods.get("humidity", {})
+        if humidity is not None and hum.get("speed_boost_pct", 0) and humidity > hum.get("threshold", 60):
+            boost += float(hum.get("speed_boost_pct", 0))
+        return boost
+
+    def derive_temporary_offset(self, human_pct: float) -> Optional[Tuple[float, float, datetime]]:
+        """From the speed a person chose, work out (implied_ideal, offset, expires).
+        The offset is relative to the configured ideal plus the standing offset,
+        so it captures only what the person asked for beyond the standing value."""
+        season = get_current_season(**self._config.get_season_kwargs())
+        base_ideal = self.get_configured_ideal_temperature()
+        if base_ideal is None:
+            return None
+        base_ideal += self.standing_offset_value(season)
+        result = temporary_offset_for_change(
+            human_pct, self.fan_curve.get("points", []), self.get_current_temperature(),
+            base_ideal, self.active_additive_boost(season),
+        )
+        if result is None:
+            return None
+        implied_ideal, offset = result
+        return implied_ideal, offset, self.temporary_offset_expiry_for()
+
+    def offset_state_dict(self) -> Optional[dict]:
+        if not self.temporary_offset_active():
+            return None
+        return {
+            "offset": self.temporary_offset,
+            "expires": self.temporary_offset_expires.isoformat(timespec="seconds") if self.temporary_offset_expires else None,
+            "source": self.temporary_offset_source,
+            "implied_ideal": self.temporary_offset_implied_ideal,
+        }
+
+    def restore_offset_state(self, state: dict) -> bool:
+        try:
+            offset = float(state["offset"])
+            expires = datetime.fromisoformat(state["expires"]) if state.get("expires") else None
+        except (KeyError, TypeError, ValueError):
+            return False
+        if expires is not None and expires <= clock.now():
+            return False
+        self.temporary_offset = offset
+        self.temporary_offset_expires = expires
+        self.temporary_offset_source = state.get("source") or "restored"
+        self.temporary_offset_implied_ideal = state.get("implied_ideal")
+        return True
 
     def get_ideal_temperature_breakdown(self) -> List[Tuple[str, str]]:
         """Explain how the ideal temperature was resolved.
@@ -346,6 +578,17 @@ class FanZone(AutoFanBase):
                     lines.append(("", f"  Maximum ideal cap: {cap:.1f}° (not reached)"))
         else:
             lines.append(("📌", f"Source: static = {fallback:.1f}°F"))
+
+        configured = self.get_configured_ideal_temperature()
+        standing = self.standing_offset_value()
+        if standing:
+            lines.append(("🎚️", f"Standing comfort offset: {standing:+.1f}°F"))
+        if self.temporary_offset_active():
+            until = self.temporary_offset_expires.strftime("%a %H:%M") if self.temporary_offset_expires else "cleared by hand"
+            lines.append(("🎚️", f"Temporary comfort offset: {self.temporary_offset:+.1f}°F until {until} ({self.temporary_offset_source})"))
+        effective = self.get_ideal_temperature()
+        if configured is not None and effective is not None and abs(effective - configured) > 1e-9:
+            lines.append(("🎯", f"Effective ideal: {effective:.1f}°F"))
 
         return lines
 
@@ -578,6 +821,7 @@ class FanZone(AutoFanBase):
             humidity=self.get_humidity(),
             is_home=self._config.is_home(),
             season=season,
+            is_night=self.is_night(season),
         )
         plan.contributions.extend(modifier_contribs)
 
@@ -637,8 +881,46 @@ class FanZone(AutoFanBase):
         """Apply the calculated target speed to the fan device."""
         if not self.fan_dev_id:
             return False
-        self._last_speed_command_time = datetime.now()
+        self._last_speed_command_time = clock.now()
+        self._last_commanded_step = self._step_for_pct(self._target_speed_pct)
         return send_fan_speed(self.fan_dev_id, self._target_speed_pct, self.logger)
+
+    def _step_for_pct(self, pct: float) -> int:
+        """Map a percentage to the fan's step: speed index for stepped fans,
+        the rounded percentage for dimmers and relays."""
+        info = self._get_device_speed_info()
+        if info.get("speed_index_count"):
+            return self._pct_to_speed_index(pct, info["speed_index_count"])
+        return int(round(pct))
+
+    def acknowledge_current_step(self) -> None:
+        """The plugin evaluated and agrees with the step the fan is on: treat
+        that step as "ours" so a later report of it is not read as a person."""
+        if self.fan_dev_id:
+            self._last_commanded_step = self.current_step()
+
+    def current_step(self) -> int:
+        """The step the fan is on right now (same scale as _step_for_pct)."""
+        info = self._get_device_speed_info()
+        if info.get("speed_index_count"):
+            return int(info["speed_index"])
+        return int(round(self._get_current_speed_pct()))
+
+    def is_change_from_plugin(self, grace_seconds: int = 10) -> bool:
+        """Decide whether a fan state change is the plugin's own doing.
+
+        Two tests, either of which means "ours":
+        1. The fan has settled on the step the plugin last commanded. The
+           Haiku reports its real state 20–50 s after a command, so a timing
+           test alone mistook that echo for a person.
+        2. The report arrived within ``grace_seconds`` of the command, when a
+           fan may still be mid-update (one state key changed, the next not yet).
+
+        Anything else is a person.
+        """
+        if self._last_commanded_step is not None and self.current_step() == self._last_commanded_step:
+            return True
+        return self.is_self_triggered_change(grace_seconds)
 
     # ---- Lock Management ----
 
@@ -654,37 +936,139 @@ class FanZone(AutoFanBase):
             return self.lock_extension_duration
         return self._config.default_lock_extension_duration
 
+    def holds_locks_at_night(self) -> bool:
+        """Zone override ("on"/"off") or the plugin-wide default ("inherit")."""
+        if self.hold_locks_at_night == "on":
+            return True
+        if self.hold_locks_at_night == "off":
+            return False
+        return bool(getattr(self._config, "hold_locks_at_night", True))
+
+    def get_max_lock_hours(self) -> float:
+        return float(getattr(self._config, "max_lock_hours", 10) or 10)
+
     def lock_zone(self, reason: str = "manual change") -> None:
-        """Lock the zone to prevent automation."""
-        duration = self.get_effective_lock_duration()
+        """Lock the zone so automation leaves the fan alone.
+
+        Two rules, chosen when the lock is taken:
+        - night_end: a manual change inside the zone's Night Window, with
+          "Hold locks at nighttime" on, holds until the window ends (or the
+          house goes Away).
+        - duration: otherwise the configured duration; at expiry the lock is
+          extended while presence is detected, up to the maximum lock hours.
+
+        A lock taken while already locked (a re-adjustment) restarts the
+        lock with the same decision logic.
+        """
+        now = clock.now()
+        restarted = self.locked
         self.locked = True
-        self.lock_expiration = datetime.now() + timedelta(minutes=duration)
+        self.lock_started = now
+        self.lock_reason = reason
+        self.lock_extensions = 0
+        self.lock_step = self.current_step() if self.fan_dev_id else None
+        if self.holds_locks_at_night() and self.is_night(now=now):
+            self.lock_rule = "night_end"
+            self.lock_expiration = self.next_night_end(now)
+            self.logger.info(
+                f"🔒 Zone '{self.name}' locked until night ends at "
+                f"{self.lock_expiration.strftime('%H:%M')} ({reason})"
+                + (" — lock restarted" if restarted else "")
+            )
+        else:
+            self.lock_rule = "duration"
+            duration = self.get_effective_lock_duration()
+            self.lock_expiration = now + timedelta(minutes=duration)
+            self.logger.info(
+                f"🔒 Zone '{self.name}' locked for {duration}m ({reason}). "
+                f"Expires: {self.lock_expiration.strftime('%H:%M:%S')}"
+                + (" — lock restarted" if restarted else "")
+            )
+
+    def extend_lock(self) -> bool:
+        """Extend a duration lock by the extension value, within the maximum
+        lock hours counted from when the lock was taken. Night-end locks are
+        never extended. Returns True when the lock was extended."""
+        if not self.locked or self.lock_rule != "duration":
+            return False
+        now = clock.now()
+        extension = self.get_effective_lock_extension_duration()
+        if extension <= 0:
+            return False
+        started = self.lock_started or now
+        hard_stop = started + timedelta(hours=self.get_max_lock_hours())
+        new_expiration = min(now + timedelta(minutes=extension), hard_stop)
+        if new_expiration <= now:
+            return False
+        self.lock_expiration = new_expiration
+        self.lock_extensions += 1
         self.logger.info(
-            f"🔒 Zone '{self.name}' locked for {duration}m ({reason}). "
+            f"🔒 Zone '{self.name}' lock extended by {extension}m (presence detected). "
             f"Expires: {self.lock_expiration.strftime('%H:%M:%S')}"
         )
+        return True
 
-    def extend_lock(self) -> None:
-        """Extend the lock if presence is still detected."""
+    def decide_at_expiry(self) -> str:
+        """At (or after) lock_expiration: 'extend' or 'unlock'."""
         if not self.locked:
-            return
-        extension = self.get_effective_lock_extension_duration()
-        self.lock_expiration = datetime.now() + timedelta(minutes=extension)
-        self._debug_log(
-            f"Lock extended by {extension}m. New expiration: {self.lock_expiration.strftime('%H:%M:%S')}"
-        )
+            return "unlock"
+        if self.lock_rule == "duration" and self.has_presence_detected() and self.extend_lock():
+            return "extend"
+        return "unlock"
 
-    def unlock_zone(self) -> None:
+    def unlock_zone(self, reason: str = "expired") -> None:
         """Unlock the zone."""
         self.locked = False
         self.lock_expiration = None
-        self.logger.info(f"🔓 Zone '{self.name}' unlocked")
+        self.lock_rule = None
+        self.lock_started = None
+        self.lock_step = None
+        self.lock_extensions = 0
+        self.logger.info(f"🔓 Zone '{self.name}' unlocked ({reason})")
 
     def is_lock_expired(self) -> bool:
         """Check if the lock has expired."""
         if not self.locked or self.lock_expiration is None:
             return False
-        return datetime.now() >= self.lock_expiration
+        return clock.now() >= self.lock_expiration
+
+    def lock_state_dict(self) -> Optional[dict]:
+        """Serializable lock state for the state store (None when unlocked)."""
+        if not self.locked or self.lock_expiration is None:
+            return None
+        return {
+            "until": self.lock_expiration.isoformat(timespec="seconds"),
+            "rule": self.lock_rule,
+            "reason": self.lock_reason,
+            "started": (self.lock_started or clock.now()).isoformat(timespec="seconds"),
+            "step": self.lock_step,
+            "extensions": self.lock_extensions,
+        }
+
+    def restore_lock_state(self, state: dict) -> bool:
+        """Re-establish a persisted lock. Returns False (and stays unlocked)
+        when the stored lock has already expired or is unreadable."""
+        try:
+            until = datetime.fromisoformat(state["until"])
+        except (KeyError, TypeError, ValueError):
+            return False
+        if until <= clock.now():
+            return False
+        self.locked = True
+        self.lock_expiration = until
+        self.lock_rule = state.get("rule") or "duration"
+        self.lock_reason = state.get("reason") or "restored"
+        try:
+            self.lock_started = datetime.fromisoformat(state["started"])
+        except (KeyError, TypeError, ValueError):
+            self.lock_started = clock.now()
+        self.lock_step = state.get("step")
+        self.lock_extensions = int(state.get("extensions") or 0)
+        self.logger.info(
+            f"🔒 Zone '{self.name}' lock restored ({self.lock_rule}, {self.lock_reason}). "
+            f"Expires: {until.strftime('%Y-%m-%d %H:%M:%S')}"
+        )
+        return True
 
     # ---- Device Change Detection ----
 
@@ -713,7 +1097,7 @@ class FanZone(AutoFanBase):
         """Check if a fan speed change was likely caused by the plugin itself."""
         if self._last_speed_command_time is None:
             return False
-        elapsed = (datetime.now() - self._last_speed_command_time).total_seconds()
+        elapsed = (clock.now() - self._last_speed_command_time).total_seconds()
         return elapsed < grace_seconds
 
     def has_variable(self, var_id: int) -> bool:

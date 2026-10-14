@@ -46,6 +46,55 @@
             </Field>
         </ConfigUI>
     </Action>
+    <Action id="set_comfort_offset">
+        <Name>Set Comfort Offset</Name>
+        <CallbackMethod>set_comfort_offset</CallbackMethod>
+        <ConfigUI>
+            <Field id="zone_list" type="menu">
+                <Label>Zone:</Label>
+                <List class="self" filter="stuff" method="get_zone_list"/>
+            </Field>
+            <Field id="offset" type="menu" defaultValue="-1.0">
+                <Label>Offset (°F added to the ideal):</Label>
+                <List>
+                    <Option value="-3.0">-3.0 (much cooler)</Option>
+                    <Option value="-2.5">-2.5</Option>
+                    <Option value="-2.0">-2.0</Option>
+                    <Option value="-1.5">-1.5</Option>
+                    <Option value="-1.0">-1.0 (a degree cooler)</Option>
+                    <Option value="-0.5">-0.5</Option>
+                    <Option value="0.5">+0.5</Option>
+                    <Option value="1.0">+1.0 (a degree warmer)</Option>
+                    <Option value="1.5">+1.5</Option>
+                    <Option value="2.0">+2.0</Option>
+                    <Option value="2.5">+2.5</Option>
+                    <Option value="3.0">+3.0 (much warmer)</Option>
+                </List>
+            </Field>
+            <Field id="until" type="menu" defaultValue="daily_reset">
+                <Label>Until:</Label>
+                <List>
+                    <Option value="night_end">the zone's night window ends</Option>
+                    <Option value="night_start">the zone's night window begins</Option>
+                    <Option value="daily_reset">the daily reset hour</Option>
+                    <Option value="hours">a number of hours from now</Option>
+                </List>
+            </Field>
+            <Field id="hours" type="textfield" defaultValue="4" visibleBindingId="until" visibleBindingValue="hours">
+                <Label>Hours:</Label>
+            </Field>
+        </ConfigUI>
+    </Action>
+    <Action id="clear_comfort_offset">
+        <Name>Clear Comfort Offset</Name>
+        <CallbackMethod>clear_comfort_offset</CallbackMethod>
+        <ConfigUI>
+            <Field id="zone_list" type="menu">
+                <Label>Zone:</Label>
+                <List class="self" filter="stuff" method="get_zone_list"/>
+            </Field>
+        </ConfigUI>
+    </Action>
     <!-- IWS Actions for Web Configuration Interface -->
     <Action id="web_ui" uiPath="hidden">
         <Name>Web UI Handler</Name>

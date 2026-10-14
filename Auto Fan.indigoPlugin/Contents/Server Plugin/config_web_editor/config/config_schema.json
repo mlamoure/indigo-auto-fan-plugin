@@ -20,6 +20,38 @@
           "tooltip": "Duration in minutes to extend the lock when presence is detected.",
           "default": 30
         },
+        "hold_locks_at_night": {
+          "type": "boolean",
+          "x-sync_to_indigo": true,
+          "title": "Hold Locks at Nighttime",
+          "tooltip": "When on, a manual fan change made inside a zone's Night Window locks the zone until the window ends (or the house goes Away) instead of for the lock duration. Zones can override this.",
+          "default": true
+        },
+        "max_lock_hours": {
+          "type": "integer",
+          "x-sync_to_indigo": true,
+          "title": "Maximum Lock (hours)",
+          "tooltip": "Hard ceiling for a duration lock that keeps being extended by presence, so a stuck sensor can never hold a fan forever.",
+          "default": 10
+        },
+        "daily_reset_hour": {
+          "type": "integer",
+          "x-sync_to_indigo": true,
+          "enum": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23],
+          "x-enum-labels": ["12:00 AM", "1:00 AM", "2:00 AM", "3:00 AM", "4:00 AM", "5:00 AM", "6:00 AM", "7:00 AM", "8:00 AM", "9:00 AM", "10:00 AM", "11:00 AM", "12:00 PM", "1:00 PM", "2:00 PM", "3:00 PM", "4:00 PM", "5:00 PM", "6:00 PM", "7:00 PM", "8:00 PM", "9:00 PM", "10:00 PM", "11:00 PM"],
+          "default": 10,
+          "title": "Daily Reset Hour",
+          "tooltip": "When a comfort offset set 'until the daily reset' ends, and when comfort learning runs each day."
+        },
+        "learning_mode": {
+          "type": "string",
+          "x-sync_to_indigo": true,
+          "enum": ["suggest", "off"],
+          "x-enum-labels": ["Suggest (recommend, never change anything by itself)", "Off"],
+          "default": "suggest",
+          "title": "Comfort Learning (beta)",
+          "tooltip": "Beta. Whether the plugin learns from people changing the fans by hand. Suggest: once a day, at the Daily Reset Hour, the plugin looks at the manual changes in each zone and may recommend a standing comfort offset or a change to the lock settings. Recommendations appear on the zone's page; nothing changes until you click Apply. Off: no recommendations. Manual changes still lock the fan, set a temporary comfort offset and are recorded, so turning learning back on later loses nothing. Each zone can follow this setting (Use plugin default) or choose Suggest or Off for itself."
+        },
         "weather_dev_id": {
           "type": "integer",
           "x-sync_to_indigo": true,
@@ -139,6 +171,89 @@
             "tooltip": "One or more humidity sensors. If multiple, average is used.",
             "default": []
           },
+          "night_window": {
+            "type": "object",
+            "title": "Night Window",
+            "tooltip": "When the zone counts as night, per season. Used by the nighttime speed clamp, by nighttime locks, and to split comfort offsets into day and night.",
+            "properties": {
+              "spring": {
+                "type": "object",
+                "properties": {
+                  "start_hour": {
+                    "type": "integer",
+                    "enum": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23],
+                    "x-enum-labels": ["12:00 AM", "1:00 AM", "2:00 AM", "3:00 AM", "4:00 AM", "5:00 AM", "6:00 AM", "7:00 AM", "8:00 AM", "9:00 AM", "10:00 AM", "11:00 AM", "12:00 PM", "1:00 PM", "2:00 PM", "3:00 PM", "4:00 PM", "5:00 PM", "6:00 PM", "7:00 PM", "8:00 PM", "9:00 PM", "10:00 PM", "11:00 PM"],
+                    "default": 22,
+                    "title": "Night Starts"
+                  },
+                  "end_hour": {
+                    "type": "integer",
+                    "enum": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23],
+                    "x-enum-labels": ["12:00 AM", "1:00 AM", "2:00 AM", "3:00 AM", "4:00 AM", "5:00 AM", "6:00 AM", "7:00 AM", "8:00 AM", "9:00 AM", "10:00 AM", "11:00 AM", "12:00 PM", "1:00 PM", "2:00 PM", "3:00 PM", "4:00 PM", "5:00 PM", "6:00 PM", "7:00 PM", "8:00 PM", "9:00 PM", "10:00 PM", "11:00 PM"],
+                    "default": 8,
+                    "title": "Night Ends"
+                  }
+                }
+              },
+              "summer": {
+                "type": "object",
+                "properties": {
+                  "start_hour": {
+                    "type": "integer",
+                    "enum": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23],
+                    "x-enum-labels": ["12:00 AM", "1:00 AM", "2:00 AM", "3:00 AM", "4:00 AM", "5:00 AM", "6:00 AM", "7:00 AM", "8:00 AM", "9:00 AM", "10:00 AM", "11:00 AM", "12:00 PM", "1:00 PM", "2:00 PM", "3:00 PM", "4:00 PM", "5:00 PM", "6:00 PM", "7:00 PM", "8:00 PM", "9:00 PM", "10:00 PM", "11:00 PM"],
+                    "default": 22,
+                    "title": "Night Starts"
+                  },
+                  "end_hour": {
+                    "type": "integer",
+                    "enum": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23],
+                    "x-enum-labels": ["12:00 AM", "1:00 AM", "2:00 AM", "3:00 AM", "4:00 AM", "5:00 AM", "6:00 AM", "7:00 AM", "8:00 AM", "9:00 AM", "10:00 AM", "11:00 AM", "12:00 PM", "1:00 PM", "2:00 PM", "3:00 PM", "4:00 PM", "5:00 PM", "6:00 PM", "7:00 PM", "8:00 PM", "9:00 PM", "10:00 PM", "11:00 PM"],
+                    "default": 8,
+                    "title": "Night Ends"
+                  }
+                }
+              },
+              "fall": {
+                "type": "object",
+                "properties": {
+                  "start_hour": {
+                    "type": "integer",
+                    "enum": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23],
+                    "x-enum-labels": ["12:00 AM", "1:00 AM", "2:00 AM", "3:00 AM", "4:00 AM", "5:00 AM", "6:00 AM", "7:00 AM", "8:00 AM", "9:00 AM", "10:00 AM", "11:00 AM", "12:00 PM", "1:00 PM", "2:00 PM", "3:00 PM", "4:00 PM", "5:00 PM", "6:00 PM", "7:00 PM", "8:00 PM", "9:00 PM", "10:00 PM", "11:00 PM"],
+                    "default": 22,
+                    "title": "Night Starts"
+                  },
+                  "end_hour": {
+                    "type": "integer",
+                    "enum": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23],
+                    "x-enum-labels": ["12:00 AM", "1:00 AM", "2:00 AM", "3:00 AM", "4:00 AM", "5:00 AM", "6:00 AM", "7:00 AM", "8:00 AM", "9:00 AM", "10:00 AM", "11:00 AM", "12:00 PM", "1:00 PM", "2:00 PM", "3:00 PM", "4:00 PM", "5:00 PM", "6:00 PM", "7:00 PM", "8:00 PM", "9:00 PM", "10:00 PM", "11:00 PM"],
+                    "default": 8,
+                    "title": "Night Ends"
+                  }
+                }
+              },
+              "winter": {
+                "type": "object",
+                "properties": {
+                  "start_hour": {
+                    "type": "integer",
+                    "enum": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23],
+                    "x-enum-labels": ["12:00 AM", "1:00 AM", "2:00 AM", "3:00 AM", "4:00 AM", "5:00 AM", "6:00 AM", "7:00 AM", "8:00 AM", "9:00 AM", "10:00 AM", "11:00 AM", "12:00 PM", "1:00 PM", "2:00 PM", "3:00 PM", "4:00 PM", "5:00 PM", "6:00 PM", "7:00 PM", "8:00 PM", "9:00 PM", "10:00 PM", "11:00 PM"],
+                    "default": 22,
+                    "title": "Night Starts"
+                  },
+                  "end_hour": {
+                    "type": "integer",
+                    "enum": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23],
+                    "x-enum-labels": ["12:00 AM", "1:00 AM", "2:00 AM", "3:00 AM", "4:00 AM", "5:00 AM", "6:00 AM", "7:00 AM", "8:00 AM", "9:00 AM", "10:00 AM", "11:00 AM", "12:00 PM", "1:00 PM", "2:00 PM", "3:00 PM", "4:00 PM", "5:00 PM", "6:00 PM", "7:00 PM", "8:00 PM", "9:00 PM", "10:00 PM", "11:00 PM"],
+                    "default": 8,
+                    "title": "Night Ends"
+                  }
+                }
+              }
+            }
+          },
           "seasonal_ideal_temp": {
             "type": "object",
             "title": "Seasonal Ideal Temperature",
@@ -148,6 +263,50 @@
               "fall":   { "$ref": "#/definitions/ideal_temp_season" },
               "winter": { "$ref": "#/definitions/ideal_temp_season" }
             }
+          },
+          "comfort_offset": {
+            "type": "object",
+            "title": "Comfort Offset (°F)",
+            "tooltip": "Standing degrees added to the configured ideal, per season and day/night. Negative = cooler. Set by hand or by applying a recommendation.",
+            "properties": {
+              "spring": {
+                "type": "object",
+                "properties": {
+                  "day": {"type": "number", "default": 0, "title": "Day"},
+                  "night": {"type": "number", "default": 0, "title": "Night"}
+                }
+              },
+              "summer": {
+                "type": "object",
+                "properties": {
+                  "day": {"type": "number", "default": 0, "title": "Day"},
+                  "night": {"type": "number", "default": 0, "title": "Night"}
+                }
+              },
+              "fall": {
+                "type": "object",
+                "properties": {
+                  "day": {"type": "number", "default": 0, "title": "Day"},
+                  "night": {"type": "number", "default": 0, "title": "Night"}
+                }
+              },
+              "winter": {
+                "type": "object",
+                "properties": {
+                  "day": {"type": "number", "default": 0, "title": "Day"},
+                  "night": {"type": "number", "default": 0, "title": "Night"}
+                }
+              }
+            }
+          },
+          "learning_mode": {
+            "type": "string",
+            "x-sync_to_indigo": true,
+            "enum": ["inherit", "suggest", "off"],
+            "x-enum-labels": ["Use plugin default", "Suggest", "Off"],
+            "default": "inherit",
+            "title": "Comfort Learning (beta)",
+            "tooltip": "Beta. Whether the plugin learns from people changing this zone's fan by hand. Use plugin default: follow the Comfort Learning setting on the Auto Fan tab (Suggest unless it was turned off there). Suggest: once a day, at the Daily Reset Hour, the plugin looks at this zone's manual changes and may recommend a standing comfort offset or a change to the lock settings. Recommendations appear on this page; nothing changes until you click Apply. Off: no recommendations for this zone. A manual change still locks the fan and sets a temporary comfort offset, and it is still recorded, so turning learning back on later loses nothing."
           },
           "seasonal_curves": {
             "type": "object",
@@ -206,6 +365,7 @@
               "nighttime": {
                 "type": "object",
                 "title": "Nighttime Modifier",
+                "tooltip": "Speed limits that apply during the zone's Night Window.",
                 "properties": {
                   "spring": {
                     "type": "object",
@@ -223,20 +383,6 @@
                         "x-enum-labels": ["0%", "10%", "20%", "30%", "40%", "50%", "60%", "70%", "80%", "90%", "No Maximum"],
                         "default": 100,
                         "title": "Max Speed at Night"
-                      },
-                      "night_start_hour": {
-                        "type": "integer",
-                        "enum": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23],
-                        "x-enum-labels": ["12:00 AM", "1:00 AM", "2:00 AM", "3:00 AM", "4:00 AM", "5:00 AM", "6:00 AM", "7:00 AM", "8:00 AM", "9:00 AM", "10:00 AM", "11:00 AM", "12:00 PM", "1:00 PM", "2:00 PM", "3:00 PM", "4:00 PM", "5:00 PM", "6:00 PM", "7:00 PM", "8:00 PM", "9:00 PM", "10:00 PM", "11:00 PM"],
-                        "default": 22,
-                        "title": "Night Start Hour"
-                      },
-                      "night_end_hour": {
-                        "type": "integer",
-                        "enum": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23],
-                        "x-enum-labels": ["12:00 AM", "1:00 AM", "2:00 AM", "3:00 AM", "4:00 AM", "5:00 AM", "6:00 AM", "7:00 AM", "8:00 AM", "9:00 AM", "10:00 AM", "11:00 AM", "12:00 PM", "1:00 PM", "2:00 PM", "3:00 PM", "4:00 PM", "5:00 PM", "6:00 PM", "7:00 PM", "8:00 PM", "9:00 PM", "10:00 PM", "11:00 PM"],
-                        "default": 8,
-                        "title": "Night End Hour"
                       }
                     }
                   },
@@ -256,20 +402,6 @@
                         "x-enum-labels": ["0%", "10%", "20%", "30%", "40%", "50%", "60%", "70%", "80%", "90%", "No Maximum"],
                         "default": 100,
                         "title": "Max Speed at Night"
-                      },
-                      "night_start_hour": {
-                        "type": "integer",
-                        "enum": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23],
-                        "x-enum-labels": ["12:00 AM", "1:00 AM", "2:00 AM", "3:00 AM", "4:00 AM", "5:00 AM", "6:00 AM", "7:00 AM", "8:00 AM", "9:00 AM", "10:00 AM", "11:00 AM", "12:00 PM", "1:00 PM", "2:00 PM", "3:00 PM", "4:00 PM", "5:00 PM", "6:00 PM", "7:00 PM", "8:00 PM", "9:00 PM", "10:00 PM", "11:00 PM"],
-                        "default": 22,
-                        "title": "Night Start Hour"
-                      },
-                      "night_end_hour": {
-                        "type": "integer",
-                        "enum": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23],
-                        "x-enum-labels": ["12:00 AM", "1:00 AM", "2:00 AM", "3:00 AM", "4:00 AM", "5:00 AM", "6:00 AM", "7:00 AM", "8:00 AM", "9:00 AM", "10:00 AM", "11:00 AM", "12:00 PM", "1:00 PM", "2:00 PM", "3:00 PM", "4:00 PM", "5:00 PM", "6:00 PM", "7:00 PM", "8:00 PM", "9:00 PM", "10:00 PM", "11:00 PM"],
-                        "default": 8,
-                        "title": "Night End Hour"
                       }
                     }
                   },
@@ -289,20 +421,6 @@
                         "x-enum-labels": ["0%", "10%", "20%", "30%", "40%", "50%", "60%", "70%", "80%", "90%", "No Maximum"],
                         "default": 100,
                         "title": "Max Speed at Night"
-                      },
-                      "night_start_hour": {
-                        "type": "integer",
-                        "enum": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23],
-                        "x-enum-labels": ["12:00 AM", "1:00 AM", "2:00 AM", "3:00 AM", "4:00 AM", "5:00 AM", "6:00 AM", "7:00 AM", "8:00 AM", "9:00 AM", "10:00 AM", "11:00 AM", "12:00 PM", "1:00 PM", "2:00 PM", "3:00 PM", "4:00 PM", "5:00 PM", "6:00 PM", "7:00 PM", "8:00 PM", "9:00 PM", "10:00 PM", "11:00 PM"],
-                        "default": 22,
-                        "title": "Night Start Hour"
-                      },
-                      "night_end_hour": {
-                        "type": "integer",
-                        "enum": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23],
-                        "x-enum-labels": ["12:00 AM", "1:00 AM", "2:00 AM", "3:00 AM", "4:00 AM", "5:00 AM", "6:00 AM", "7:00 AM", "8:00 AM", "9:00 AM", "10:00 AM", "11:00 AM", "12:00 PM", "1:00 PM", "2:00 PM", "3:00 PM", "4:00 PM", "5:00 PM", "6:00 PM", "7:00 PM", "8:00 PM", "9:00 PM", "10:00 PM", "11:00 PM"],
-                        "default": 8,
-                        "title": "Night End Hour"
                       }
                     }
                   },
@@ -322,20 +440,6 @@
                         "x-enum-labels": ["0%", "10%", "20%", "30%", "40%", "50%", "60%", "70%", "80%", "90%", "No Maximum"],
                         "default": 100,
                         "title": "Max Speed at Night"
-                      },
-                      "night_start_hour": {
-                        "type": "integer",
-                        "enum": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23],
-                        "x-enum-labels": ["12:00 AM", "1:00 AM", "2:00 AM", "3:00 AM", "4:00 AM", "5:00 AM", "6:00 AM", "7:00 AM", "8:00 AM", "9:00 AM", "10:00 AM", "11:00 AM", "12:00 PM", "1:00 PM", "2:00 PM", "3:00 PM", "4:00 PM", "5:00 PM", "6:00 PM", "7:00 PM", "8:00 PM", "9:00 PM", "10:00 PM", "11:00 PM"],
-                        "default": 22,
-                        "title": "Night Start Hour"
-                      },
-                      "night_end_hour": {
-                        "type": "integer",
-                        "enum": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23],
-                        "x-enum-labels": ["12:00 AM", "1:00 AM", "2:00 AM", "3:00 AM", "4:00 AM", "5:00 AM", "6:00 AM", "7:00 AM", "8:00 AM", "9:00 AM", "10:00 AM", "11:00 AM", "12:00 PM", "1:00 PM", "2:00 PM", "3:00 PM", "4:00 PM", "5:00 PM", "6:00 PM", "7:00 PM", "8:00 PM", "9:00 PM", "10:00 PM", "11:00 PM"],
-                        "default": 8,
-                        "title": "Night End Hour"
                       }
                     }
                   }
@@ -388,6 +492,15 @@
             "x-sync_to_indigo": true,
             "title": "Lock Extension Duration (minutes)",
             "default": -1
+          },
+          "hold_locks_at_night": {
+            "type": "string",
+            "x-sync_to_indigo": true,
+            "enum": ["inherit", "on", "off"],
+            "x-enum-labels": ["Use plugin default", "On", "Off"],
+            "default": "inherit",
+            "title": "Hold Locks at Nighttime",
+            "tooltip": "A manual change inside this zone's Night Window locks it until the window ends. 'Use plugin default' follows the Auto Fan setting."
           }
         },
         "required": ["name", "temp_sensor_dev_ids"]

@@ -1,5 +1,7 @@
-from datetime import time, datetime
+from datetime import time
 from typing import List, Optional, Tuple
+
+from . import clock
 
 
 def interpolate(value: float, points: List[dict]) -> float:
@@ -55,7 +57,7 @@ def calculate_base_speed(delta: float, fan_curve: dict) -> float:
 
 def _is_nighttime(start_hour: int, end_hour: int) -> bool:
     """Check if current time is within nighttime hours."""
-    now = datetime.now().time()
+    now = clock.now().time()
     start = time(start_hour, 0)
     end = time(end_hour, 0)
 
@@ -78,6 +80,7 @@ def apply_modifiers(
     humidity: Optional[float],
     is_home: bool,
     season: str = "summer",
+    is_night: Optional[bool] = None,
 ) -> Tuple[float, List[Tuple[str, str]]]:
     """
     Apply modifier stack to base speed.
@@ -100,6 +103,9 @@ def apply_modifiers(
         is_hvac_heating: Whether HVAC is actively heating.
         humidity: Current humidity percentage (None if unavailable).
         is_home: Whether someone is home (from global away variable).
+        is_night: Whether the zone is inside its Night Window. The zone computes
+            this from its per-season ``night_window``; when None (legacy callers),
+            the hours stored in the nighttime modifier are used instead.
 
     Returns:
         Tuple of (final_speed_pct, list of (emoji, reason) contributions).
@@ -156,9 +162,11 @@ def apply_modifiers(
     clamp_min = night_mod.get("clamp_min_pct", 0)
     clamp_max = night_mod.get("clamp_max_pct", 100)
     if clamp_max < 100 or clamp_min > 0:
-        start_hour = night_mod.get("night_start_hour", 22)
-        end_hour = night_mod.get("night_end_hour", 8)
-        if _is_nighttime(start_hour, end_hour):
+        if is_night is None:
+            start_hour = night_mod.get("night_start_hour", 22)
+            end_hour = night_mod.get("night_end_hour", 8)
+            is_night = _is_nighttime(start_hour, end_hour)
+        if is_night:
             old_speed = speed
             speed = max(clamp_min, min(speed, clamp_max))
             if speed != old_speed:

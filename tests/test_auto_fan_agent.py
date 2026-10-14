@@ -666,3 +666,79 @@ class TestStructuredLogOutput:
         info_messages = [r.message for r in caplog.records if r.levelno == logging.INFO]
         assert not any("🌀 Zone" in m for m in info_messages), \
             "Should not log speed change when index unchanged"
+
+
+class TestSettledStepDetection:
+    """A fan report that lands on the plugin's own step is not a manual change."""
+
+    def _primed_agent(self, fake_indigo, fake_clock):
+        """Agent whose zone 0 just commanded a speed (temp 75 vs ideal 72 → ~60%)."""
+        _setup_zone_devices(fake_indigo, temp_value=75.0, fan_speed=0)
+        agent = _make_agent()
+        zone = agent.config.zones[0]
+        assert agent.process_zone(zone) is True
+        assert zone._last_commanded_step is not None
+        return agent, zone
+
+    def test_late_echo_on_commanded_step_does_not_lock(self, fake_indigo, fake_clock):
+        agent, zone = self._primed_agent(fake_indigo, fake_clock)
+        fan = fake_indigo.devices[100]
+        fake_clock.advance(seconds=21)  # past the 10 s grace, like the Haiku's second report
+        agent.process_device_change(fan, {"speedLevel": fan.speedLevel})
+        assert zone.locked is False
+
+    def test_report_on_a_different_step_locks(self, fake_indigo, fake_clock):
+        agent, zone = self._primed_agent(fake_indigo, fake_clock)
+        fan = fake_indigo.devices[100]
+        fake_clock.advance(seconds=21)
+        fan.speedIndex = (zone._last_commanded_step + 1) % 4
+        fan.speedLevel = round(fan.speedIndex * 100 / 3)
+        agent.process_device_change(fan, {"speedLevel": fan.speedLevel})
+        assert zone.locked is True
+
+    def test_change_inside_grace_is_still_ours(self, fake_indigo, fake_clock):
+        """Within the grace a fan may be mid-update, so any report is ours."""
+        agent, zone = self._primed_agent(fake_indigo, fake_clock)
+        fan = fake_indigo.devices[100]
+        fake_clock.advance(seconds=2)
+        fan.speedIndex = (zone._last_commanded_step + 1) % 4
+        agent.process_device_change(fan, {"speedLevel": 1})
+        assert zone.locked is False
+
+    def test_never_commanded_means_manual(self, fake_indigo, fake_clock):
+        _setup_zone_devices(fake_indigo, temp_value=75.0, fan_speed=50)
+        agent = _make_agent()
+        zone = agent.config.zones[0]
+        fan = fake_indigo.devices[100]
+        agent.process_device_change(fan, {"speedLevel": 50})
+        assert zone.locked is True
+
+    def test_dimmer_fan_compares_rounded_percent(self, fake_indigo, fake_clock):
+        _setup_zone_devices(fake_indigo, temp_value=75.0, fan_speed=0, speed_index_count=None)
+        fan = fake_indigo.devices[100]
+        del fan.speedLevel  # a dimmer-style fan has no speedLevel attribute at all
+        fan.states.pop("speedLevel", None)
+        agent = _make_agent()
+        zone = agent.config.zones[0]
+        agent.process_zone(zone)
+        commanded = zone._last_commanded_step
+        fake_clock.advance(seconds=30)
+        fan.brightness = commanded
+        agent.process_device_change(fan, {"brightness": commanded})
+        assert zone.locked is False
+        fan.brightness = commanded + 25
+        agent.process_device_change(fan, {"brightness": commanded + 25})
+        assert zone.locked is True
+
+    def test_agreed_step_is_acknowledged_as_ours(self, fake_indigo, fake_clock):
+        """After a lock, the plugin may agree with where the person left the fan and
+        send nothing; a later report of that step must not look like a person."""
+        agent, zone = self._primed_agent(fake_indigo, fake_clock)
+        fan = fake_indigo.devices[100]
+        # Pretend the fan already sits on the plugin's target and the plugin re-evaluates
+        zone._last_commanded_step = None
+        agent.process_zone(zone)          # no change needed → acknowledge
+        assert zone._last_commanded_step == zone.current_step()
+        fake_clock.advance(seconds=60)
+        agent.process_device_change(fan, {"speedLevel": fan.speedLevel})
+        assert zone.locked is False
