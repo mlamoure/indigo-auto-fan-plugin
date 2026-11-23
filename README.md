@@ -78,4 +78,4 @@ Browser-based config editor accessible via Indigo's plugin menu (**Plugins → A
 
 ## License
 
-MIT
+MIT. See [LICENSE](LICENSE).
