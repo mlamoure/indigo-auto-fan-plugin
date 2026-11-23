@@ -158,6 +158,12 @@ class AutoFanAgent(AutoFanBase):
             )
             return False
 
+        # Comfort learning's watch counts only days the house was home
+        try:
+            self.recommender.note_home(clock.now(), self.config.is_home())
+        except Exception as e:
+            self._debug_log(f"Could not note presence for comfort learning: {e}")
+
         # GUARD: zone disabled
         if not zone.enabled:
             self._debug_log(f"Skipping process_zone for '{zone.name}' — zone disabled")
@@ -650,6 +656,11 @@ class AutoFanAgent(AutoFanBase):
                 zone_d["hold_locks_at_night"] = str(rec["proposed"])
             elif setting == "lock_duration":
                 zone_d["lock_duration"] = int(rec["proposed"])
+            elif setting.startswith("night_limits."):
+                season = setting.split(".", 1)[1]
+                low, high = (int(v) for v in rec["proposed"])
+                night = zone_d.setdefault("modifiers", {}).setdefault("nighttime", {}).setdefault(season, {})
+                night["clamp_min_pct"], night["clamp_max_pct"] = low, high
             else:
                 return False, f"Unknown setting '{setting}'"
             save_config_with_backup(path, data)

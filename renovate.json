@@ -1,0 +1,20 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "config:recommended"
+  ],
+  "constraints": {
+    "python": "==3.13.*"
+  },
+  "constraintsFiltering": "strict",
+  "description": "This plugin runs inside Indigo's embedded Python (3.13 in Indigo 2025.2 and 2026.1), not an interpreter we choose. Strict constraint filtering makes Renovate offer only PyPI releases whose requires-python accepts 3.13. Raise the constraint by hand when Perceptive Automation ships a new Python with Indigo (same reasoning as indigo-mcp-server's CI-Python rule).",
+  "packageRules": [
+    {
+      "description": "Keep the Python constraint above fixed. Renovate tracks `constraints.python` as a tool-constraint dependency and would otherwise propose moving it to the newest Python, which defeats its purpose. Raise it by hand when Indigo ships a new Python.",
+      "matchDepTypes": [
+        "tool-constraint"
+      ],
+      "enabled": false
+    }
+  ]
+}

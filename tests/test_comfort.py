@@ -232,3 +232,30 @@ class TestOffsetEndsWithNightLock:
         assert agent.config.state_store.load("offsets") == {}
         assert len(speed_control_calls) == commands   # no second command
         agent.shutdown()
+
+
+class TestCurveEnds:
+    """At either end of the curve a manual change gives a bound, not a value."""
+
+    def test_off_in_a_cold_room_says_nothing(self):
+        # A bedroom: room 63, ideal 69, curve floor reached long ago; turned off
+        assert temporary_offset_for_change(0, MB_FALL, 63.0, 69.0) is None
+
+    def test_off_in_a_warm_room_still_means_warmer(self):
+        # room 70.5 at ideal 69 is +1.5 on the curve (≈51%); turning off means the ideal is at least 73.5
+        implied, offset = temporary_offset_for_change(0, MB_FALL, 70.5, 69.0)
+        assert implied == pytest.approx(73.5) and offset == 3.0
+
+    def test_full_speed_in_a_hot_room_says_nothing(self):
+        assert temporary_offset_for_change(100, MB_FALL, 78.0, 72.0) is None
+
+    def test_full_speed_in_a_mild_room_means_cooler(self):
+        implied, offset = temporary_offset_for_change(100, MB_FALL, 72.0, 72.0)
+        assert implied == pytest.approx(69.0) and offset == -3.0
+
+    def test_inside_the_curve_is_unchanged(self):
+        from auto_fan.comfort import offset_is_informative
+        assert offset_is_informative(29, -0.5, MB_FALL)
+        assert offset_is_informative(29, 1.0, MB_FALL)
+        assert not offset_is_informative(6, -1.0, MB_FALL)   # at the floor, pointing cooler
+        assert offset_is_informative(None, -1.0, MB_FALL)    # nothing to judge by

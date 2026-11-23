@@ -75,4 +75,38 @@ def temporary_offset_for_change(human_pct: float, curve_points: List[dict],
         return None
     implied_ideal = room_temp - delta
     offset = round_offset(implied_ideal - configured_ideal)
+    if not offset_is_informative(base_pct, offset, curve_points):
+        return None
     return implied_ideal, offset
+
+
+def curve_speed_range(points: List[dict]) -> Optional[Tuple[float, float]]:
+    """(lowest, highest) speed of a curve, or None for an empty curve."""
+    if not points:
+        return None
+    speeds = [float(p["speed"]) for p in points]
+    return min(speeds), max(speeds)
+
+
+def offset_is_informative(speed_pct: Optional[float], offset: Optional[float], points: List[dict]) -> bool:
+    """Whether a change to ``speed_pct`` says anything about the ideal.
+
+    At or below the curve's lowest speed the curve is flat, so a person who
+    chose that speed (or turned the fan off) only tells us the ideal is *at
+    least* the inverted value: the room may be far colder than the curve's
+    end. That bound is evidence for a warmer ideal when it lies above the one
+    in use, and no evidence at all when it lies below; read as a value it
+    would say "cooler" about a person who turned the fan off in a cold room.
+    The same holds the other way round at the curve's highest speed.
+    """
+    if speed_pct is None or offset is None:
+        return True
+    rng = curve_speed_range(points)
+    if rng is None:
+        return True
+    lowest, highest = rng
+    if float(speed_pct) <= lowest:
+        return offset > 0
+    if float(speed_pct) >= highest:
+        return offset < 0
+    return True

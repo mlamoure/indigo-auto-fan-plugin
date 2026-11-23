@@ -120,6 +120,26 @@ class TestZonePageLayout:
         assert 'id="comfort-recommendations"' not in html
         assert 'href="#lock-recommendations"' in html and 'href="#comfort-recommendations"' not in html
 
+    def test_night_limits_recommendation_sits_in_nighttime_section(self, fake_indigo, fake_clock):
+        agent, zone = _agent(fake_indigo)
+        agent.recommender._save_recommendations([
+            {"id": "night01", "zone": "Living Room", "setting": "night_limits.fall", "setting_label": "Fall night speed limits",
+             "title": "Living Room: set night speed limits for fall", "text": "t", "current": [20, 100], "proposed": [30, 60],
+             "current_label": "min 20%, max none", "proposed_label": "min 30%, max 60%", "evidence": {}, "status": "open",
+             "created": "2026-10-04T10:00:00", "bucket": {"season": "fall", "period": "night"}},
+            {"id": "lock01", "zone": "Living Room", "setting": "lock_duration", "setting_label": "Lock duration",
+             "title": "Living Room: locks end too soon", "text": "e", "current": 60, "proposed": 90,
+             "current_label": "60 min", "proposed_label": "90 min", "evidence": {}, "status": "open",
+             "created": "2026-10-04T10:00:00", "bucket": None}])
+        with FALL:
+            html = _handler(agent).handle_request("GET", {}, {}, {"page": "zone/0"})["content"]
+        card = html.index('id="nighttime-recommendations"')
+        assert html.index("<legend>Nighttime Modifier</legend>") < card
+        assert 'id="comfort-recommendations"' not in html
+        assert "min 20%, max none → <strong>min 30%, max 60%</strong>" in html
+        assert ('<a href="#nighttime-recommendations">Nighttime Modifier ↓</a> · '
+                '<a href="#lock-recommendations">Lock Behavior ↓</a>') in html
+
     def test_comfort_learning_tooltip_explains_each_choice(self, fake_indigo, fake_clock):
         agent, zone = _agent(fake_indigo)
         with FALL:

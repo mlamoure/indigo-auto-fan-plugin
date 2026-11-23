@@ -14,11 +14,12 @@
 <div id="container">
     <div id="content">
         {% from "_form_macros.html" import render_field, save_overlay %}
-        {# The learner recommends comfort offsets and lock settings (and reverts of either). #}
-        {% set lock_settings = ['lock_duration', 'hold_locks_at_night'] %}
+        {# The learner recommends comfort offsets, night speed limits and lock settings (and reverts of any);
+           each recommendation names the section that owns its setting. #}
         {% set open_recs = zone_status.recommendations if zone_status and zone_status.recommendations else [] %}
-        {% set lock_recs = open_recs | selectattr('setting', 'in', lock_settings) | list %}
-        {% set comfort_recs = open_recs | rejectattr('setting', 'in', lock_settings) | list %}
+        {% set lock_recs = open_recs | selectattr('section', 'eq', 'lock') | list %}
+        {% set night_recs = open_recs | selectattr('section', 'eq', 'nighttime') | list %}
+        {% set comfort_recs = open_recs | selectattr('section', 'eq', 'comfort') | list %}
         {% macro rec_cards(recs, box_id) %}
         {% if recs %}
         <div class="recommendations" id="{{ box_id }}">
@@ -69,9 +70,11 @@
             {% if zone_status.recommendations %}
             <div class="status-strip-line" id="now-recs">
                 💡 {{ zone_status.recommendations|length }} open recommendation{{ 's' if zone_status.recommendations|length != 1 }} (beta) —
-                {% if comfort_recs %}<a href="#comfort-recommendations">Comfort Offset ↓</a>{% endif %}
-                {% if comfort_recs and lock_recs %} · {% endif %}
-                {% if lock_recs %}<a href="#lock-recommendations">Lock Behavior ↓</a>{% endif %}
+                {% set links = [] %}
+                {% if comfort_recs %}{% set _ = links.append('<a href="#comfort-recommendations">Comfort Offset ↓</a>') %}{% endif %}
+                {% if night_recs %}{% set _ = links.append('<a href="#nighttime-recommendations">Nighttime Modifier ↓</a>') %}{% endif %}
+                {% if lock_recs %}{% set _ = links.append('<a href="#lock-recommendations">Lock Behavior ↓</a>') %}{% endif %}
+                {{ links | join(' · ') | safe }}
             </div>
             {% endif %}
         </div>
@@ -415,6 +418,7 @@
                         </select>
                     </div>
                     <p style="font-style:italic; margin:4px 0;">Applies during the zone's Night Window above.</p>
+                    {{ rec_cards(night_recs, 'nighttime-recommendations') }}
                 </fieldset>
 
                 {% if zone_form.modifiers.form.humidity is defined %}
